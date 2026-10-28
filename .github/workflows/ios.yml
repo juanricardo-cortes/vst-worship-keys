@@ -1,0 +1,37 @@
+# Builds an unsigned Worship Keys .ipa on a GitHub macOS runner.
+# Install it on the iPhone from Windows with Sideloadly (it signs with your Apple ID).
+name: iOS build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [Source/**, Samples/**, CMakeLists.txt, .github/workflows/ios.yml]
+
+jobs:
+  ios:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -B build-ios -G Xcode -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0
+
+      - name: Build
+        run: >
+          cmake --build build-ios --config Release --target WorshipKeys_Standalone --
+          -sdk iphoneos CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
+
+      - name: Package IPA
+        run: |
+          APP=$(find build-ios -type d -name "Worship Keys.app" -path "*iphoneos*" | head -1)
+          test -n "$APP" || { echo "app bundle not found"; exit 1; }
+          test -f "$APP/Samples/tuning.txt" || { echo "samples not bundled"; exit 1; }
+          mkdir Payload && cp -R "$APP" Payload/
+          zip -qry WorshipKeys.ipa Payload
+          ls -lh WorshipKeys.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WorshipKeys-iOS
+          path: WorshipKeys.ipa
