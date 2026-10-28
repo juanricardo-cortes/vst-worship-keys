@@ -24,7 +24,7 @@ jobs:
 
       - name: Package IPA
         run: |
-          APP=$(find build-ios -type d -name "Worship Keys.app" -path "*iphoneos*" | head -1)
+          APP=$(find build-ios/WorshipKeys_artefacts -type d -name "Worship Keys.app" | head -1)
           test -n "$APP" || { echo "app bundle not found"; exit 1; }
           test -f "$APP/Samples/tuning.txt" || { echo "samples not bundled"; exit 1; }
           mkdir Payload && cp -R "$APP" Payload/
