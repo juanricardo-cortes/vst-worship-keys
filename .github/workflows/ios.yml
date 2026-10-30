@@ -1,37 +1,59 @@
-# Builds an unsigned Worship Keys .ipa on a GitHub macOS runner.
-# Install it on the iPhone from Windows with Sideloadly (it signs with your Apple ID).
+# Builds unsigned iPhone apps on a GitHub macOS runner:
+#   WorshipStation.ipa  - the whole package: Keys + Synth + Orchestra, with all samples inside
+#   WorshipKeys.ipa     - Worship Keys on its own
+# Install an .ipa on the iPhone from Windows with Sideloadly (it signs with your Apple ID).
 name: iOS build
 
 on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: [Source/**, Samples/**, CMakeLists.txt, .github/workflows/ios.yml]
+    paths: [worship-keys/**, anthem-synth/**, worship-station/**, .github/workflows/ios.yml]
 
 jobs:
   ios:
     runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - dir: worship-station
+            target: WorshipStation_Standalone
+            artefacts: WorshipStation_artefacts
+            app: Worship Station.app
+            ipa: WorshipStation
+          - dir: worship-keys
+            target: WorshipKeys_Standalone
+            artefacts: WorshipKeys_artefacts
+            app: Worship Keys.app
+            ipa: WorshipKeys
     steps:
       - uses: actions/checkout@v4
 
       - name: Configure
+        working-directory: ${{ matrix.dir }}
         run: cmake -B build-ios -G Xcode -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0
 
       - name: Build
+        working-directory: ${{ matrix.dir }}
         run: >
-          cmake --build build-ios --config Release --target WorshipKeys_Standalone --
+          cmake --build build-ios --config Release --target ${{ matrix.target }} --
           -sdk iphoneos CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
 
       - name: Package IPA
+        working-directory: ${{ matrix.dir }}
         run: |
-          APP=$(find build-ios/WorshipKeys_artefacts -type d -name "Worship Keys.app" | head -1)
+          APP=$(find build-ios/${{ matrix.artefacts }} -type d -name "${{ matrix.app }}" | head -1)
           test -n "$APP" || { echo "app bundle not found"; exit 1; }
-          test -f "$APP/Samples/tuning.txt" || { echo "samples not bundled"; exit 1; }
+          test -f "$APP/Samples/tuning.txt" || { echo "piano samples not bundled"; exit 1; }
+          if [ "${{ matrix.dir }}" = "worship-station" ]; then
+            test -f "$APP/Samples/Orchestra/VlnStac/map.txt" || { echo "orchestra samples not bundled"; exit 1; }
+          fi
           mkdir Payload && cp -R "$APP" Payload/
-          zip -qry WorshipKeys.ipa Payload
-          ls -lh WorshipKeys.ipa
+          zip -qry ${{ matrix.ipa }}.ipa Payload
+          ls -lh ${{ matrix.ipa }}.ipa
 
       - uses: actions/upload-artifact@v4
         with:
-          name: WorshipKeys-iOS
-          path: WorshipKeys.ipa
+          name: ${{ matrix.ipa }}-iOS
+          path: ${{ matrix.dir }}/${{ matrix.ipa }}.ipa

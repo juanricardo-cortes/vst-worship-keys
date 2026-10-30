@@ -1,0 +1,6 @@
+_download/
+build/
+build-*/
+renders*/
+dist/
+promo/

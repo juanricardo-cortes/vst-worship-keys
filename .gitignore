@@ -1,6 +1,8 @@
 _download/
 build/
 build-*/
-renders/
+renders*/
 dist/
 promo/
+__pycache__/
+*.pyc

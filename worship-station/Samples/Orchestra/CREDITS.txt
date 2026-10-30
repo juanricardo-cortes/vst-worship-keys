@@ -1,0 +1,4 @@
+Orchestra samples: VS Chamber Orchestra 2 Community Edition by Versilian Studios
+(Sam Gossner, Simon Dalzell; sample cutting by Elan Hickler / Soundemote)
+License: CC0 1.0 Universal (public domain) - https://github.com/sgossner/VSCO-2-CE
+Trimmed, faded, normalised and converted to FLAC for Worship Station.
