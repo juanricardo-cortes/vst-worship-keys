@@ -19,7 +19,8 @@ Range levelRange()
 constexpr float offDb = -59.9f;
 constexpr int typeCC = 1, typeNote = 2, typeProgram = 3;
 const char* volIds[] = { "keysVol", "synthVol", "orchVol" };
-const char* controlIds[] = { "wheel", "next", "prev", "keys", "synth", "orch" };
+const char* controlIds[] = { "wheel", "next", "prev", "keys", "synth", "orch", "patchWheel", "nextPatch", "prevPatch" };
+constexpr int numPatchZones = 128;
 
 int makeCode (int type, int channel, int number) { return type << 16 | channel << 8 | number; }
 int codeType (int code) { return code >> 16; }
@@ -28,6 +29,11 @@ int codeNumber (int code) { return code & 0xff; }
 
 // Pedals and channel-mode messages always mean something to a keyboard rig: never learn them.
 bool isLearnableCC (int cc) { return cc != 64 && cc != 66 && cc != 67 && cc < 120; }
+
+bool isArturiaDevice (const juce::String& name)
+{
+    return name.containsIgnoreCase ("KL Essential") || name.containsIgnoreCase ("KeyLab") || name.containsIgnoreCase ("Arturia");
+}
 
 juce::File settingsFile()
 {
@@ -66,14 +72,16 @@ StationProcessor::StationProcessor()
         volParam[i] = apvts.getRawParameterValue (volIds[i]);
     masterParam = apvts.getRawParameterValue ("master");
 
-    for (auto& b : binding) b = 0;
+    useArturiaDefaults(); // replaced by your own controls once you learn or clear any
     for (int i = 0; i < numPacks; ++i)
     {
         packChannel[(size_t) i] = i + 1; // split routing default: Keys ch 1, Synth ch 2, Orchestra ch 3
         packSlot[(size_t) i] = -1;
+        pendingPatchSteps[(size_t) i] = 0;
+        pendingPatchZone[(size_t) i] = -1;
     }
     loadSettings();
-    startTimer (1000);
+    startTimer (30); // patch changes; device scan every ~1 s
 }
 
 StationProcessor::~StationProcessor()
@@ -146,7 +154,7 @@ void StationProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
     {
         noteLastMidi (m, slot);
         if (learnTarget.load() >= 0) { learn (m); return; }
-        if (handleControls (m)) return;
+        if (handleControls (m, slot)) return;
         route (m, pos, slot);
     };
 
@@ -267,23 +275,27 @@ void StationProcessor::learn (const juce::MidiMessage& m)
     int code = 0;
     if (m.isController() && isLearnableCC (m.getControllerNumber()))
     {
-        if (target != wheel && m.getControllerValue() == 0)
+        auto isWheel = target == wheel || target == patchWheel;
+        if (! isWheel && m.getControllerValue() == 0)
             return; // button release
         code = makeCode (typeCC, m.getChannel(), m.getControllerNumber());
-        if (target == wheel)
+        if (isWheel)
         {
             // Guess the wheel type from the first value: endless encoders send small steps around 64 (or 1 / 127).
+            // Arturia sends a bare 64 before every step, so wait for the step itself.
             auto v = m.getControllerValue();
+            if (v == 64)
+                return;
             wheelMode = (v <= 15 || v >= 113) ? relative2s : (v >= 49 && v <= 79 && v != 64) ? relative64 : absolute;
-            lastWheelZone = -1;
+            lastWheelZone = lastPatchZone = -1;
         }
     }
-    else if (target != wheel && m.isNoteOn())
+    else if (target != wheel && target != patchWheel && m.isNoteOn())
     {
         code = makeCode (typeNote, m.getChannel(), m.getNoteNumber());
         controlNoteDown[(size_t) m.getChannel() - 1][(size_t) m.getNoteNumber()] = true;
     }
-    else if (target != wheel && m.isProgramChange())
+    else if (target != wheel && target != patchWheel && m.isProgramChange())
         code = makeCode (typeProgram, m.getChannel(), m.getProgramChangeNumber());
     else
         return;
@@ -291,12 +303,18 @@ void StationProcessor::learn (const juce::MidiMessage& m)
     for (auto& b : binding) // one control per MIDI message
         if (b.load() == code) b = 0;
     binding[(size_t) target] = code;
+    arturiaDefaults = false;
     learnTarget = -1;
     settingsChanged = true;
 }
 
-bool StationProcessor::handleControls (const juce::MidiMessage& m)
+bool StationProcessor::handleControls (const juce::MidiMessage& m, int slot)
 {
+    // The built-in KeyLab setup ignores other keyboards, so their knobs (which may also send CC 25 / 26 / 114)
+    // keep playing their own pack. Learned controls answer any device.
+    if (arturiaDefaults.load() && juce::isPositiveAndBelow (slot, maxDevices) && ! slotIsArturia[(size_t) slot].load())
+        return false;
+
     int type = 0, number = 0, value = 0;
     auto ch = m.getChannel();
     if (ch < 1) return false;
@@ -307,41 +325,16 @@ bool StationProcessor::handleControls (const juce::MidiMessage& m)
 
     auto code = makeCode (type, ch, number);
 
-    if (type == typeCC && binding[wheel].load() == code)
-    {
-        auto mode = wheelMode.load();
-        // A "relative" guess that later sends big jumps was really a knob or fader.
-        if ((mode == relative64 && (value < 40 || value > 88)) || (mode == relative2s && value >= 20 && value <= 107))
-        {
-            wheelMode = mode = absolute;
-            settingsChanged = true;
-        }
-
-        if (mode == absolute)
-        {
-            auto zone = juce::jlimit (0, numPacks - 1, value * numPacks / 128);
-            if (zone != lastWheelZone)
+    if (type == typeCC)
+        for (auto w : { wheel, patchWheel })
+            if (binding[(size_t) w].load() == code)
             {
-                lastWheelZone = zone;
-                selectPack (zone);
+                handleWheel (w, value, patchTargetPack (ch, slot));
+                return true;
             }
-        }
-        else
-        {
-            auto delta = mode == relative64 ? value - 64 : (value < 64 ? value : value - 128);
-            auto now = clock + clockPos;
-            // One detent = one pack; a quick spin moves at most one pack per 80 ms so it can't overshoot wildly.
-            if (delta != 0 && now - lastStepClock > 0.08 * sr)
-            {
-                lastStepClock = now;
-                stepPack (delta > 0 ? 1 : -1);
-            }
-        }
-        return true;
-    }
 
     for (int c = nextPack; c < numControls; ++c)
-        if (binding[(size_t) c].load() == code)
+        if (c != patchWheel && binding[(size_t) c].load() == code)
         {
             if (type == typeNote)
                 controlNoteDown[(size_t) ch - 1][(size_t) number] = m.isNoteOn();
@@ -349,6 +342,8 @@ bool StationProcessor::handleControls (const juce::MidiMessage& m)
             {
                 if (c == nextPack) stepPack (1);
                 else if (c == prevPack) stepPack (-1);
+                else if (c == nextPatch) pendingPatchSteps[(size_t) patchTargetPack (ch, slot)] += 1;
+                else if (c == prevPatch) pendingPatchSteps[(size_t) patchTargetPack (ch, slot)] -= 1;
                 else selectPack (c - selectKeys);
             }
             return true;
@@ -363,6 +358,98 @@ bool StationProcessor::handleControls (const juce::MidiMessage& m)
     return false;
 }
 
+// Switch mode: the pack you're on. Split mode: the pack this keyboard plays (else the one on screen).
+int StationProcessor::patchTargetPack (int channel, int slot) const
+{
+    if (routing.load() == splitInputs)
+        for (int p = 0; p < numPacks; ++p)
+            if (listensTo (p, channel, slot))
+                return p;
+    return getSelectedPack();
+}
+
+bool StationProcessor::listensTo (int pack, int channel, int slot) const
+{
+    auto want = packChannel[(size_t) pack].load();
+    auto wantSlot = packSlot[(size_t) pack].load();
+    return want >= 0 && (want == 0 || want == channel) && (wantSlot < 0 || wantSlot == slot);
+}
+
+void StationProcessor::handleWheel (int control, int value, int targetPack)
+{
+    auto mode = wheelMode.load();
+    // A "relative" guess that later sends big jumps was really a knob or fader.
+    if ((mode == relative64 && (value < 40 || value > 88)) || (mode == relative2s && value >= 20 && value <= 107))
+    {
+        wheelMode = mode = absolute;
+        settingsChanged = true;
+    }
+    auto forPatches = control == patchWheel;
+
+    if (mode == absolute)
+    {
+        auto zones = forPatches ? numPatchZones : numPacks;
+        auto zone = juce::jlimit (0, zones - 1, value * zones / 128);
+        auto& last = forPatches ? lastPatchZone : lastWheelZone;
+        if (zone != last)
+        {
+            last = zone;
+            if (forPatches) pendingPatchZone[(size_t) targetPack] = zone;   // spread over the pack's presets on the message thread
+            else selectPack (zone);
+        }
+        return;
+    }
+
+    auto delta = mode == relative64 ? value - 64 : (value < 64 ? value : value - 128);
+    if (delta == 0)
+        return;
+    if (forPatches)
+    {
+        pendingPatchSteps[(size_t) targetPack] += delta > 0 ? 1 : -1;   // one click = one patch
+        return;
+    }
+    auto now = clock + clockPos;
+    // One detent = one pack; a quick spin moves at most one pack per 80 ms so it can't overshoot wildly.
+    if (now - lastStepClock > 0.08 * sr)
+    {
+        lastStepClock = now;
+        stepPack (delta > 0 ? 1 : -1);
+    }
+}
+
+void StationProcessor::applyPendingPatchChange()
+{
+    for (int p = 0; p < numPacks; ++p)
+    {
+        auto steps = pendingPatchSteps[(size_t) p].exchange (0);
+        auto zone = pendingPatchZone[(size_t) p].exchange (-1);
+        if (steps == 0 && zone < 0)
+            continue;
+        auto& pack = getPack (p);
+        auto n = pack.getNumPrograms();
+        if (n <= 1)
+            continue;
+        auto index = zone >= 0 ? juce::jlimit (0, n - 1, zone * n / numPatchZones) : pack.getCurrentProgram();
+        index = ((index + steps) % n + n) % n;
+        if (index != pack.getCurrentProgram())
+            pack.setCurrentProgram (index);
+    }
+}
+
+void StationProcessor::useArturiaDefaults()
+{
+    // What a KeyLab Essential mk3 sends on its main port: center wheel CC 114 (64 then 65 / 63 per click),
+    // the arrow buttons CC 25 (back) and CC 26 (forward).
+    for (auto& b : binding) b = 0;
+    binding[patchWheel] = makeCode (typeCC, 1, 114);
+    binding[prevPack] = makeCode (typeCC, 1, 25);
+    binding[nextPack] = makeCode (typeCC, 1, 26);
+    wheelMode = relative64;
+    lastWheelZone = lastPatchZone = -1;
+    arturiaDefaults = true;
+    settingsChanged = true;
+}
+
 void StationProcessor::route (const juce::MidiMessage& m, int pos, int slot)
 {
     auto ch = m.getChannel();
@@ -373,11 +460,8 @@ void StationProcessor::route (const juce::MidiMessage& m, int pos, int slot)
     {
         for (int p = 0; p < numPacks; ++p)
         {
-            auto want = packChannel[(size_t) p].load();
-            auto wantSlot = packSlot[(size_t) p].load();
-            if (want < 0 || (want > 0 && want != ch) || (wantSlot >= 0 && wantSlot != slot))
-                continue;
-            send (p, m, pos);
+            if (listensTo (p, ch, slot))
+                send (p, m, pos);
         }
         return;
     }
@@ -442,6 +526,7 @@ juce::String StationProcessor::describeBinding (Control c) const
 void StationProcessor::clearBinding (Control c)
 {
     binding[(size_t) c] = 0;
+    arturiaDefaults = false;
     saveSettings();
 }
 
@@ -492,6 +577,7 @@ void StationProcessor::setPackChannel (int pack, int channel)
 void StationProcessor::setPackDevice (int pack, const juce::String& deviceName)
 {
     packDevice[(size_t) pack] = deviceName;
+    timerTicks = 0;
     timerCallback(); // resolve the slot now
     saveSettings();
 }
@@ -507,14 +593,26 @@ juce::StringArray StationProcessor::getMidiDeviceNames() const
 //==============================================================================
 void StationProcessor::handleIncomingMidiMessage (juce::MidiInput* source, const juce::MidiMessage& m)
 {
-    auto name = source != nullptr ? source->getName() : juce::String();
+    queueFromDevice (source != nullptr ? source->getName() : juce::String(), m);
+}
+
+void StationProcessor::injectDeviceMidi (const juce::String& device, const juce::MidiMessage& m)
+{
+    deviceInputsActive = true;
+    auto msg = m;
+    msg.setTimeStamp (juce::Time::getMillisecondCounterHiRes() * 0.001);
+    queueFromDevice (device, msg);
+}
+
+void StationProcessor::queueFromDevice (const juce::String& name, const juce::MidiMessage& m)
+{
     int slot = -1;
     {
         juce::SpinLock::ScopedLockType l (slotLock);
         for (int i = 0; i < maxDevices && slot < 0; ++i)
             if (slotNames[(size_t) i] == name) slot = i;
         for (int i = 0; i < maxDevices && slot < 0; ++i)
-            if (slotNames[(size_t) i].isEmpty()) { slotNames[(size_t) i] = name; slot = i; }
+            if (slotNames[(size_t) i].isEmpty()) { slotNames[(size_t) i] = name; slotIsArturia[(size_t) i] = isArturiaDevice (name); slot = i; }
     }
     if (slot >= 0)
         collectors[(size_t) slot].addMessageToQueue (m);
@@ -522,6 +620,10 @@ void StationProcessor::handleIncomingMidiMessage (juce::MidiInput* source, const
 
 void StationProcessor::timerCallback()
 {
+    applyPendingPatchChange();
+    if (timerTicks++ % 33 != 0)
+        return;
+
    #if JucePlugin_Build_Standalone
     if (auto* holder = juce::StandalonePluginHolder::getInstance())
     {
@@ -550,7 +652,7 @@ void StationProcessor::timerCallback()
             for (int i = 0; i < maxDevices && slot < 0; ++i)
                 if (slotNames[(size_t) i] == name) slot = i;
             for (int i = 0; i < maxDevices && slot < 0; ++i) // reserve a slot for a device that hasn't played yet
-                if (slotNames[(size_t) i].isEmpty()) { slotNames[(size_t) i] = name; slot = i; }
+                if (slotNames[(size_t) i].isEmpty()) { slotNames[(size_t) i] = name; slotIsArturia[(size_t) i] = isArturiaDevice (name); slot = i; }
         }
         packSlot[(size_t) p] = slot;
     }
@@ -572,6 +674,8 @@ void StationProcessor::saveSettings()
     juce::XmlElement xml ("Controller");
     xml.setAttribute ("routing", routing.load());
     xml.setAttribute ("wheelMode", wheelMode.load());
+    xml.setAttribute ("bindingsVersion", 2);
+    xml.setAttribute ("arturiaDefaults", arturiaDefaults.load() ? 1 : 0);
     for (int c = 0; c < numControls; ++c)
         if (auto code = binding[(size_t) c].load(); code != 0)
         {
@@ -601,13 +705,19 @@ void StationProcessor::loadSettings()
     if (xml == nullptr)
         return;
     routing = juce::jlimit (0, 1, xml->getIntAttribute ("routing", 0));
-    wheelMode = juce::jlimit (0, 2, xml->getIntAttribute ("wheelMode", relative64));
-    for (auto* e : xml->getChildWithTagNameIterator ("Bind"))
-        for (int c = 0; c < numControls; ++c)
-            if (e->getStringAttribute ("control") == controlIds[c])
-                binding[(size_t) c] = makeCode (juce::jlimit (1, 3, e->getIntAttribute ("type")),
-                                                juce::jlimit (1, 16, e->getIntAttribute ("channel", 1)),
-                                                juce::jlimit (0, 127, e->getIntAttribute ("number")));
+    // Files from before v2 had no working wheel / arrow setup: those keep the Arturia defaults.
+    if (xml->getIntAttribute ("bindingsVersion", 0) >= 2)
+    {
+        wheelMode = juce::jlimit (0, 2, xml->getIntAttribute ("wheelMode", relative64));
+        arturiaDefaults = xml->getIntAttribute ("arturiaDefaults", 0) != 0;
+        for (auto& b : binding) b = 0;
+        for (auto* e : xml->getChildWithTagNameIterator ("Bind"))
+            for (int c = 0; c < numControls; ++c)
+                if (e->getStringAttribute ("control") == controlIds[c])
+                    binding[(size_t) c] = makeCode (juce::jlimit (1, 3, e->getIntAttribute ("type")),
+                                                    juce::jlimit (1, 16, e->getIntAttribute ("channel", 1)),
+                                                    juce::jlimit (0, 127, e->getIntAttribute ("number")));
+    }
     int p = 0;
     for (auto* e : xml->getChildWithTagNameIterator ("Pack"))
         if (p < numPacks)

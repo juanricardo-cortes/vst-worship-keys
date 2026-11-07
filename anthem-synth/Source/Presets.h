@@ -5,8 +5,7 @@
 
 // Factory presets. Any parameter not listed falls back to its default (see createLayout()).
 // "bpm" and "master" are never touched by presets.
-// Voicings are educated estimates of each band's synth sound (from live videos and records),
-// not copies of their actual patches.
+// Names are generic on purpose: no band, song or church names.
 //
 // Choice indices:
 //   oscAWave 0 Supersaw 1 Saw 2 Square 3 Triangle     oscBWave 0 Saw 1 Square 2 Triangle 3 Sine
@@ -23,9 +22,9 @@ struct Preset
 inline const std::vector<Preset>& getPresets()
 {
     static const std::vector<Preset> presets {
-        //---------------------------------------------------------------- Elevation Worship
+        //---------------------------------------------------------------- pads, lead, bass
         // Warm wide supersaw bed with an octave layer, slow swell, huge shimmer hall.
-        { "Elevation - Ambient Pad",
+        { "Ambient Supersaw Pad",
           { { "level", -1 }, { "oscAWave", 0 }, { "detune", 0.22f }, { "oscALevel", 0.8f },
             { "oscBWave", 0 }, { "oscBOct", 1 }, { "oscBFine", 5 }, { "oscBLevel", 0.22f }, { "width", 0.95f },
             { "cutoff", 1400 }, { "reso", 0.12f }, { "fltEnv", 0.15f }, { "keyTrack", 0.4f }, { "fltVel", 0.1f },
@@ -37,8 +36,8 @@ inline const std::vector<Preset>& getPresets()
             { "delayMix", 0.12f }, { "delayFeedback", 0.4f }, { "delayTime", 1 },
             { "revMix", 0.45f }, { "revDecay", 7.0f }, { "revSize", 0.95f }, { "revTone", 6500 }, { "shimmer", 0.35f } } },
 
-        // The pulsing 16th-note pad that drives Elevation's builds; delay fills the gaps.
-        { "Elevation - Pulse Pad",
+        // Pulsing 16th-note pad for builds; delay fills the gaps.
+        { "16th Pulse Pad",
           { { "oscAWave", 0 }, { "detune", 0.28f }, { "oscALevel", 0.8f },
             { "oscBWave", 1 }, { "oscBOct", -1 }, { "oscBLevel", 0.3f }, { "pw", 0.3f }, { "width", 0.85f },
             { "cutoff", 2200 }, { "reso", 0.15f }, { "fltEnv", 0.1f }, { "keyTrack", 0.4f },
@@ -51,7 +50,7 @@ inline const std::vector<Preset>& getPresets()
             { "revMix", 0.35f }, { "revDecay", 4.5f }, { "revSize", 0.85f }, { "revTone", 7000 }, { "shimmer", 0.15f } } },
 
         // Singing supersaw lead with a sub-octave square, legato glide and delayed vibrato-style LFO.
-        { "Elevation - Soaring Lead",
+        { "Soaring Lead",
           { { "level", 3 }, { "oscAWave", 0 }, { "detune", 0.3f }, { "oscALevel", 0.85f },
             { "oscBWave", 1 }, { "oscBOct", -1 }, { "oscBLevel", 0.3f }, { "width", 0.6f },
             { "cutoff", 3200 }, { "reso", 0.2f }, { "fltEnv", 0.25f }, { "keyTrack", 0.6f }, { "fltVel", 0.25f },
@@ -65,7 +64,7 @@ inline const std::vector<Preset>& getPresets()
             { "revMix", 0.3f }, { "revDecay", 4.0f }, { "revSize", 0.8f }, { "revTone", 7500 }, { "shimmer", 0.1f } } },
 
         // Moog-style mono bass: round, a little growl on the attack, very short glide.
-        { "Elevation - Moog Bass",
+        { "Round Analog Bass",
           { { "oscAWave", 1 }, { "oscAOct", -1 }, { "oscALevel", 0.8f },
             { "oscBWave", 1 }, { "oscBOct", -1 }, { "oscBFine", -6 }, { "oscBLevel", 0.5f }, { "subLevel", 0.6f }, { "width", 0.0f },
             { "cutoff", 380 }, { "reso", 0.3f }, { "fltEnv", 0.45f }, { "keyTrack", 0.3f }, { "fltVel", 0.3f }, { "fltDrive", 0.4f },
@@ -75,9 +74,9 @@ inline const std::vector<Preset>& getPresets()
             { "lowCut", 25 }, { "chorusMix", 0.0f }, { "delayMix", 0.0f },
             { "revMix", 0.05f }, { "revDecay", 1.2f }, { "revSize", 0.4f } } },
 
-        //---------------------------------------------------------------- Hillsong
+        //---------------------------------------------------------------- analog pads and plucks
         // Jupiter-style two-saw "Analog V" pad: slow filter bloom, rich chorus.
-        { "Hillsong - Analog V Pad",
+        { "Analog Bloom Pad",
           { { "level", -2 }, { "oscAWave", 1 }, { "oscALevel", 0.75f },
             { "oscBWave", 0 }, { "oscBFine", 9 }, { "oscBLevel", 0.75f }, { "width", 0.8f },
             { "cutoff", 900 }, { "reso", 0.25f }, { "fltEnv", 0.35f }, { "keyTrack", 0.5f }, { "fltVel", 0.15f },
@@ -88,8 +87,8 @@ inline const std::vector<Preset>& getPresets()
             { "delayMix", 0.1f }, { "delayFeedback", 0.35f }, { "delayTime", 1 },
             { "revMix", 0.4f }, { "revDecay", 6.0f }, { "revSize", 0.9f }, { "revTone", 6000 }, { "shimmer", 0.1f } } },
 
-        // United-style plucks that bloom into dotted-eighth echoes.
-        { "Hillsong - United Pluck",
+        // Plucks that bloom into dotted-eighth echoes.
+        { "Dotted Echo Pluck",
           { { "level", 10 }, { "oscAWave", 0 }, { "detune", 0.18f }, { "oscALevel", 0.85f }, { "width", 0.7f },
             { "cutoff", 500 }, { "reso", 0.25f }, { "fltEnv", 0.7f }, { "keyTrack", 0.6f }, { "fltVel", 0.35f },
             { "fAtk", 0.001f }, { "fDec", 0.28f }, { "fSus", 0.0f }, { "fRel", 0.25f },
@@ -99,8 +98,8 @@ inline const std::vector<Preset>& getPresets()
             { "delayMix", 0.35f }, { "delayFeedback", 0.5f }, { "delayTime", 1 },
             { "revMix", 0.3f }, { "revDecay", 4.0f }, { "revSize", 0.85f }, { "revTone", 7500 }, { "shimmer", 0.05f } } },
 
-        // Young & Free: bright pop supersaw chords pumping on the quarter note.
-        { "Hillsong - Young & Free Pump",
+        // Bright pop supersaw chords pumping on the quarter note.
+        { "Pop Pump Chords",
           { { "oscAWave", 0 }, { "detune", 0.35f }, { "oscALevel", 0.8f },
             { "oscBWave", 0 }, { "oscBOct", 1 }, { "oscBLevel", 0.3f }, { "width", 0.9f },
             { "cutoff", 5000 }, { "reso", 0.1f }, { "fltEnv", 0.1f }, { "keyTrack", 0.4f },
@@ -112,7 +111,7 @@ inline const std::vector<Preset>& getPresets()
             { "revMix", 0.3f }, { "revDecay", 3.0f }, { "revSize", 0.8f }, { "revTone", 8000 } } },
 
         // Soft string-machine swell for spontaneous moments; long shimmer tail.
-        { "Hillsong - Oceans Swell",
+        { "String Machine Swell",
           { { "oscAWave", 1 }, { "oscALevel", 0.6f },
             { "oscBWave", 1 }, { "oscBFine", -7 }, { "oscBLevel", 0.5f }, { "pw", 0.4f }, { "lfoPwm", 0.3f }, { "width", 0.9f },
             { "cutoff", 1800 }, { "reso", 0.1f }, { "fltEnv", 0.0f }, { "keyTrack", 0.5f },
@@ -123,9 +122,9 @@ inline const std::vector<Preset>& getPresets()
             { "delayMix", 0.12f }, { "delayFeedback", 0.45f }, { "delayTime", 3 },
             { "revMix", 0.55f }, { "revDecay", 9.0f }, { "revSize", 1.0f }, { "revTone", 6000 }, { "shimmer", 0.45f } } },
 
-        //---------------------------------------------------------------- Planetshakers
-        // "This Is Our Time": huge stacked supersaw chords, sub underneath, pumping on every beat.
-        { "Planetshakers - Our Time Anthem",
+        //---------------------------------------------------------------- anthem / festival
+        // Huge stacked supersaw chords, sub underneath, pumping on every beat.
+        { "Anthem Pump Supersaw",
           { { "oscAWave", 0 }, { "detune", 0.45f }, { "oscALevel", 0.85f },
             { "oscBWave", 0 }, { "oscBOct", -1 }, { "oscBLevel", 0.45f }, { "subLevel", 0.15f }, { "width", 1.0f },
             { "cutoff", 7000 }, { "reso", 0.05f }, { "fltEnv", 0.1f }, { "keyTrack", 0.3f },
@@ -136,8 +135,8 @@ inline const std::vector<Preset>& getPresets()
             { "delayMix", 0.12f }, { "delayFeedback", 0.3f }, { "delayTime", 2 },
             { "revMix", 0.25f }, { "revDecay", 2.5f }, { "revSize", 0.8f }, { "revTone", 9000 } } },
 
-        // "This Is Our Time": bright supersaw pluck for the hook line, 1/8 echoes.
-        { "Planetshakers - Our Time Pluck",
+        // Bright supersaw pluck for the hook line, 1/8 echoes.
+        { "Bright Hook Pluck",
           { { "level", 9 }, { "oscAWave", 0 }, { "detune", 0.3f }, { "oscALevel", 0.85f },
             { "oscBWave", 1 }, { "oscBOct", 1 }, { "oscBLevel", 0.2f }, { "width", 0.8f },
             { "cutoff", 900 }, { "reso", 0.2f }, { "fltEnv", 0.65f }, { "keyTrack", 0.6f }, { "fltVel", 0.3f },
@@ -148,8 +147,8 @@ inline const std::vector<Preset>& getPresets()
             { "delayMix", 0.28f }, { "delayFeedback", 0.35f }, { "delayTime", 2 },
             { "revMix", 0.22f }, { "revDecay", 2.2f }, { "revSize", 0.7f }, { "revTone", 9000 } } },
 
-        // "Turn It Up": aggressive detuned saw lead, octave layer, drive, quick glide.
-        { "Planetshakers - Turn It Up Lead",
+        // Aggressive detuned saw lead, octave layer, drive, quick glide.
+        { "Hype Saw Lead",
           { { "level", 1 }, { "oscAWave", 0 }, { "detune", 0.4f }, { "oscALevel", 0.85f },
             { "oscBWave", 0 }, { "oscBOct", 1 }, { "oscBFine", -8 }, { "oscBLevel", 0.4f }, { "width", 0.7f },
             { "cutoff", 4500 }, { "reso", 0.22f }, { "fltEnv", 0.3f }, { "keyTrack", 0.5f }, { "fltVel", 0.2f }, { "fltDrive", 0.55f },
@@ -162,8 +161,8 @@ inline const std::vector<Preset>& getPresets()
             { "delayMix", 0.2f }, { "delayFeedback", 0.3f }, { "delayTime", 1 },
             { "revMix", 0.2f }, { "revDecay", 2.0f }, { "revSize", 0.7f }, { "revTone", 9000 } } },
 
-        // "Turn It Up": rhythmic chord stabs. Hold a chord and the arp chops it in 1/8 notes.
-        { "Planetshakers - Turn It Up Stabs",
+        // Rhythmic chord stabs. Hold a chord and the arp chops it in 1/8 notes.
+        { "Chopped Chord Stabs",
           { { "level", 7 }, { "oscAWave", 0 }, { "detune", 0.32f }, { "oscALevel", 0.85f },
             { "oscBWave", 1 }, { "oscBOct", 0 }, { "oscBLevel", 0.25f }, { "width", 0.9f },
             { "cutoff", 2400 }, { "reso", 0.18f }, { "fltEnv", 0.4f }, { "keyTrack", 0.4f }, { "fltVel", 0.2f },
@@ -177,7 +176,7 @@ inline const std::vector<Preset>& getPresets()
             { "revMix", 0.2f }, { "revDecay", 2.0f }, { "revSize", 0.75f }, { "revTone", 9000 } } },
 
         // Festival-style 1/16 arp across two octaves, pumping gently.
-        { "Planetshakers - Festival Arp",
+        { "Festival Arp",
           { { "level", 11 }, { "oscAWave", 0 }, { "detune", 0.2f }, { "oscALevel", 0.85f }, { "width", 0.7f },
             { "cutoff", 1200 }, { "reso", 0.3f }, { "fltEnv", 0.5f }, { "keyTrack", 0.5f }, { "fltVel", 0.2f },
             { "fAtk", 0.001f }, { "fDec", 0.18f }, { "fSus", 0.1f }, { "fRel", 0.15f },
@@ -190,7 +189,7 @@ inline const std::vector<Preset>& getPresets()
             { "revMix", 0.2f }, { "revDecay", 2.5f }, { "revSize", 0.75f }, { "revTone", 9000 } } },
 
         // Driving mono saw bass that ducks with the kick.
-        { "Planetshakers - Drive Bass",
+        { "Driven Saw Bass",
           { { "oscAWave", 1 }, { "oscAOct", -1 }, { "oscALevel", 0.8f },
             { "oscBWave", 1 }, { "oscBOct", -1 }, { "oscBFine", 8 }, { "oscBLevel", 0.6f }, { "subLevel", 0.5f }, { "width", 0.1f },
             { "cutoff", 700 }, { "reso", 0.25f }, { "fltEnv", 0.5f }, { "keyTrack", 0.3f }, { "fltDrive", 0.7f },
@@ -280,6 +279,35 @@ inline const std::vector<Preset>& getPresets()
             { "delayMix", 0.3f }, { "delayFeedback", 0.4f }, { "delayTime", 1 },
             { "revMix", 0.32f }, { "revDecay", 3.0f }, { "revSize", 0.85f }, { "revTone", 9000 } } },
 
+        //---------------------------------------------------------------- fast / upbeat (zero attack)
+        // Epic trance supersaw: sound starts the instant the key goes down (no attack, no pump, no filter sweep-in).
+        // Fat 7-saw stack + saw an octave up + sub, bright and wide. Works for chords and lead lines.
+        { "Instant Trance Saw",
+          { { "level", -3 }, { "oscAWave", 0 }, { "detune", 0.42f }, { "oscALevel", 0.85f },
+            { "oscBWave", 0 }, { "oscBOct", 1 }, { "oscBFine", 7 }, { "oscBLevel", 0.35f }, { "subLevel", 0.2f }, { "width", 1.0f },
+            { "cutoff", 7500 }, { "reso", 0.12f }, { "fltEnv", 0.12f }, { "keyTrack", 0.4f }, { "fltVel", 0.15f }, { "fltDrive", 0.3f },
+            { "fAtk", 0.0005f }, { "fDec", 0.8f }, { "fSus", 0.85f }, { "fRel", 0.4f },
+            { "aAtk", 0.0005f }, { "aDec", 0.4f }, { "aSus", 1.0f }, { "aRel", 0.35f }, { "velSens", 0.15f },
+            { "motion", 0 }, { "arpMode", 0 }, { "voiceMode", 0 },
+            { "lowCut", 120 }, { "bright", 2.5f },
+            { "chorusMix", 0.2f },
+            { "delayMix", 0.18f }, { "delayFeedback", 0.35f }, { "delayTime", 1 },
+            { "revMix", 0.28f }, { "revDecay", 3.0f }, { "revSize", 0.85f }, { "revTone", 9500 }, { "shimmer", 0.0f } } },
+
+        // Bouncy electro hook for upbeat intros: supersaw + square an octave down through a driven filter
+        // that snaps shut quickly, so repeated 1/8 riffs stay tight and punchy. Instant attack.
+        { "Electro Hook Synth",
+          { { "level", 2 }, { "oscAWave", 0 }, { "detune", 0.25f }, { "oscALevel", 0.85f },
+            { "oscBWave", 1 }, { "oscBOct", -1 }, { "oscBLevel", 0.3f }, { "subLevel", 0.1f }, { "width", 0.6f },
+            { "cutoff", 1600 }, { "reso", 0.3f }, { "fltEnv", 0.5f }, { "keyTrack", 0.5f }, { "fltVel", 0.35f }, { "fltDrive", 0.6f },
+            { "fAtk", 0.0005f }, { "fDec", 0.22f }, { "fSus", 0.35f }, { "fRel", 0.15f },
+            { "aAtk", 0.0005f }, { "aDec", 0.3f }, { "aSus", 0.7f }, { "aRel", 0.12f }, { "velSens", 0.35f },
+            { "motion", 0 }, { "arpMode", 0 }, { "voiceMode", 0 },
+            { "lowCut", 130 }, { "bright", 2.0f },
+            { "chorusMix", 0.12f },
+            { "delayMix", 0.18f }, { "delayFeedback", 0.3f }, { "delayTime", 2 },
+            { "revMix", 0.18f }, { "revDecay", 1.8f }, { "revSize", 0.65f }, { "revTone", 9000 } } },
+
         //---------------------------------------------------------------- utility
         // Hold a chord for 8+ bars: noise and saws open up slowly into a build.
         { "Build-Up Riser",
@@ -293,8 +321,8 @@ inline const std::vector<Preset>& getPresets()
             { "delayMix", 0.15f }, { "delayFeedback", 0.4f }, { "delayTime", 1 },
             { "revMix", 0.45f }, { "revDecay", 5.0f }, { "revSize", 0.95f }, { "revTone", 9000 }, { "shimmer", 0.2f } } },
 
-        // Prayer / altar moments: soft triangle + sine cloud drowned in shimmer.
-        { "Prayer - Shimmer Cloud",
+        // Ambient moments: soft triangle + sine cloud drowned in shimmer.
+        { "Shimmer Cloud",
           { { "level", -2 }, { "oscAWave", 3 }, { "oscALevel", 0.8f },
             { "oscBWave", 3 }, { "oscBOct", 1 }, { "oscBFine", 4 }, { "oscBLevel", 0.4f }, { "width", 1.0f },
             { "cutoff", 3000 }, { "reso", 0.05f }, { "fltEnv", 0.0f },

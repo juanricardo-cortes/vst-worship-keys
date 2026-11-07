@@ -260,6 +260,29 @@ int main (int argc, char** argv)
         check (r.packPeak[0] > 0.01f && r.packPeak[1] < 1e-4f && r.packPeak[2] < 1e-4f, "notes go to the selected pack only (Keys)");
     }
 
+    // Out of the box (KeyLab Essential mk3): wheel CC 114 sends 64 then 65 / 63 per click = patches,
+    // arrow buttons CC 25 / 26 = packs.
+    st.selectPack (1);
+    render (st, { { 0.0, cc (114, 64) }, { 0.0, cc (114, 65) } }, 0.05);
+    st.applyPendingPatchChange();
+    check (st.getPack (1).getCurrentProgram() == 1, "Arturia wheel click -> next Synth patch");
+    render (st, { { 0.0, cc (114, 64) }, { 0.0, cc (114, 63) }, { 0.1, cc (114, 64) }, { 0.1, cc (114, 63) } }, 0.2);
+    st.applyPendingPatchChange();
+    check (st.getPack (1).getCurrentProgram() == st.getPack (1).getNumPrograms() - 1, "two clicks back wrap to the last patch");
+    check (st.getSelectedPack() == 1, "patch wheel doesn't change the pack");
+    render (st, { { 0.0, cc (26, 127) }, { 0.1, cc (26, 0) } }, 0.2);
+    check (st.getSelectedPack() == 2, "Arturia CC 26 -> next pack (Orchestra)");
+    render (st, { { 0.0, cc (25, 127) }, { 0.1, cc (25, 0) } }, 0.2);
+    render (st, { { 0.0, cc (25, 127) }, { 0.1, cc (25, 0) } }, 0.2);
+    check (st.getSelectedPack() == 0, "Arturia CC 25 twice -> back to Keys");
+    st.getPack (1).setCurrentProgram (0);
+
+    // Learning an Arturia wheel: its bare 64 must not make it look like a knob.
+    st.startLearn (StationProcessor::patchWheel);
+    render (st, { { 0.0, cc (114, 64) }, { 0.0, cc (114, 65) } }, 0.05);
+    check (st.getWheelMode() == StationProcessor::relative64, "Arturia wheel learned as endless (64 ignored)");
+    st.selectPack (0);
+
     // Learn the wheel: an Arturia-style endless encoder (65 = one step clockwise).
     st.startLearn (StationProcessor::wheel);
     render (st, { { 0.0, cc (114, 65) } }, 0.05);
@@ -342,6 +365,57 @@ int main (int argc, char** argv)
     StationProcessor st2;
     st2.setStateInformation (state.getData(), (int) state.getSize());
     check (st2.getSelectedPack() == 2 && st2.getPack (2).getCurrentProgram() == 3, "project state restores pack + orchestra preset");
+
+    //==========================================================================
+    // Several keyboards (standalone app, routed by device): KeyLab -> Keys, a second keyboard -> Synth,
+    // a third -> Orchestra. All send on channel 1. (Last block: device inputs replace the host MIDI from here.)
+    std::cout << "\nMultiple keyboards\n";
+    const juce::String keylab ("KL Essential 61 mk3"), other ("Generic USB Keyboard"), third ("Pad Controller");
+    st.useArturiaDefaults();
+    st.setRouting (StationProcessor::splitInputs);
+    for (int p = 0; p < StationProcessor::numPacks; ++p) st.setPackChannel (p, 0);   // any channel
+    st.setPackDevice (0, keylab);
+    st.setPackDevice (1, other);
+    st.setPackDevice (2, third);
+    for (int p = 0; p < StationProcessor::numPacks; ++p) st.getPack (p).setCurrentProgram (0);
+    st.selectPack (1);   // Synth on screen
+    wait (st, 5.0);
+    auto fromDevice = [&] (const juce::String& dev, std::vector<juce::MidiMessage> msgs, double seconds)
+    {
+        for (auto& m : msgs) st.injectDeviceMidi (dev, m);
+        return render (st, {}, seconds);
+    };
+    {
+        auto r = fromDevice (keylab, { on (60, 100) }, 0.5);
+        fromDevice (keylab, { off (60) }, 0.1);
+        check (r.packPeak[0] > 0.01f && r.packPeak[1] < 1e-4f && r.packPeak[2] < 1e-4f, "KeyLab plays only Keys");
+        wait (st, 5.0);
+        r = fromDevice (other, { on (64, 100) }, 0.5);
+        fromDevice (other, { off (64) }, 0.1);
+        check (r.packPeak[1] > 0.01f && r.packPeak[0] < 1e-4f && r.packPeak[2] < 1e-4f, "second keyboard plays only Synth");
+        wait (st, 15.0);   // the pad's long reverb tail
+        r = fromDevice (third, { on (62, 110) }, 0.5);
+        fromDevice (third, { off (62) }, 0.1);
+        check (r.packPeak[2] > 0.01f && r.packPeak[0] < 1e-4f && r.packPeak[1] < 1e-4f, "third keyboard plays only Orchestra (" + juce::String (db (r.packPeak[0]), 1) + " / " + juce::String (db (r.packPeak[1]), 1) + " / " + juce::String (db (r.packPeak[2]), 1) + " dB)");
+        wait (st, 5.0);
+        r = fromDevice (keylab, { on (48, 100) }, 0.0);
+        r = fromDevice (other, { on (67, 100) }, 0.5);
+        auto r2 = fromDevice (third, { on (55, 110) }, 0.5);
+        fromDevice (keylab, { off (48) }, 0.0);
+        fromDevice (other, { off (67) }, 0.0);
+        fromDevice (third, { off (55) }, 0.1);
+        check (r.packPeak[0] > 0.01f && r.packPeak[1] > 0.01f && r2.packPeak[2] > 0.01f, "all three keyboards play at the same time");
+    }
+    // The KeyLab wheel changes the patch of the pack the KeyLab plays (Keys), not the one on screen (Synth).
+    fromDevice (keylab, { cc (114, 64), cc (114, 65) }, 0.05);
+    st.applyPendingPatchChange();
+    check (st.getPack (0).getCurrentProgram() == 1 && st.getPack (1).getCurrentProgram() == 0, "KeyLab wheel -> next Keys patch in split mode");
+    // Another keyboard's knob on CC 26 / CC 114 is just a knob for its own pack.
+    fromDevice (other, { cc (26, 127), cc (26, 0), cc (114, 65) }, 0.05);
+    st.applyPendingPatchChange();
+    check (st.getSelectedPack() == 1 && st.getPack (1).getCurrentProgram() == 0, "second keyboard's CC 26 / 114 don't switch anything");
+    fromDevice (keylab, { cc (26, 127), cc (26, 0) }, 0.05);
+    check (st.getSelectedPack() == 2, "KeyLab arrow still switches the pack on screen");
 
     std::cout << "\n" << (failures == 0 ? "ALL TESTS PASSED" : juce::String (failures) + " FAILURE(S)") << "\n";
     return failures == 0 ? 0 : 2;

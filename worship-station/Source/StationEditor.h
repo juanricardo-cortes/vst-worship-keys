@@ -36,7 +36,7 @@ private:
     StationProcessor& proc;
     std::vector<std::unique_ptr<Row>> rows;
     juce::ComboBox wheelType;
-    juce::TextButton switchButton { "ONE KEYBOARD - SWITCH PACKS" }, splitButton { "EACH PACK ON ITS OWN MIDI" }, doneButton { "DONE" };
+    juce::TextButton switchButton { "ONE KEYBOARD - SWITCH PACKS" }, splitButton { "EACH PACK ON ITS OWN MIDI" }, doneButton { "DONE" }, arturiaButton { "ARTURIA DEFAULTS" };
     std::array<juce::ComboBox, StationProcessor::numPacks> channelBoxes, deviceBoxes;
     juce::Label monitor, deviceNote;
     juce::StringArray shownDevices;

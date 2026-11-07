@@ -15,7 +15,8 @@ public:
     static const juce::StringArray packNames;
 
     // Learnable controls.
-    enum Control { wheel, nextPack, prevPack, selectKeys, selectSynth, selectOrch, numControls };
+    // wheel = pack selector; patchWheel / nextPatch / prevPatch step the presets of the pack you're on.
+    enum Control { wheel, nextPack, prevPack, selectKeys, selectSynth, selectOrch, patchWheel, nextPatch, prevPatch, numControls };
     enum WheelMode { absolute, relative64, relative2s };   // knob/fader, endless (64 = no move), endless (1 / 127)
     enum Routing { switchPacks, splitInputs };
 
@@ -75,7 +76,11 @@ public:
     juce::StringArray getMidiDeviceNames() const;
 
     bool saveSettingsIfChanged(); // message thread: persists learned controls
+    void applyPendingPatchChange(); // message thread: patch wheel / buttons -> the selected pack's preset
+    void useArturiaDefaults();      // KeyLab Essential mk3: wheel = patches, arrow buttons = packs
     static inline bool persistSettings = true; // the test tool turns this off so it never touches your setup
+    // Test tool: MIDI as if it arrived from the named device in the standalone app (per-device inputs).
+    void injectDeviceMidi (const juce::String& device, const juce::MidiMessage&);
 
     juce::AudioProcessorValueTreeState apvts;
 
@@ -83,14 +88,18 @@ private:
     struct Event { juce::MidiMessage msg; int pos, slot; };
 
     void handleIncomingMidiMessage (juce::MidiInput*, const juce::MidiMessage&) override;
+    void queueFromDevice (const juce::String& name, const juce::MidiMessage&);
     void timerCallback() override;
 
     void processChunk (juce::AudioBuffer<float>& out, int start, int num, const juce::MidiBuffer& midi, int slotForBuffer);
-    bool handleControls (const juce::MidiMessage&);
+    bool handleControls (const juce::MidiMessage&, int slot);
+    int patchTargetPack (int channel, int slot) const;
+    bool listensTo (int pack, int channel, int slot) const;
     void learn (const juce::MidiMessage&);
     void route (const juce::MidiMessage&, int pos, int slot);
     void send (int pack, const juce::MidiMessage&, int pos);
     void stepPack (int delta);
+    void handleWheel (int control, int value, int targetPack);
     void noteLastMidi (const juce::MidiMessage&, int slot);
 
     void loadSettings();
@@ -110,7 +119,7 @@ private:
     std::atomic<float>* volParam[numPacks] {};
     std::atomic<float>* masterParam = nullptr;
     double sr = 44100.0, clock = 0, lastStepClock = -1.0e9;
-    int maxBlock = 512, lastWheelZone = -1, clockPos = 0;
+    int maxBlock = 512, lastWheelZone = -1, lastPatchZone = -1, clockPos = 0, timerTicks = 0;
     juce::MidiBuffer chunkMidi;
     std::atomic<bool> panicPending { false };
 
@@ -119,6 +128,8 @@ private:
     std::atomic<int> learnTarget { -1 }, wheelMode { relative64 }, routing { switchPacks };
     std::atomic<int> lastMidiCode { -1 }, lastMidiValue { 0 }, lastMidiSlot { -1 };
     std::atomic<bool> settingsChanged { false };
+    std::array<std::atomic<int>, numPacks> pendingPatchSteps {}, pendingPatchZone {};
+    std::atomic<bool> arturiaDefaults { true };   // built-in KeyLab controls: only answer Arturia keyboards
     std::array<std::atomic<int>, numPacks> packChannel {};
     std::array<juce::String, numPacks> packDevice;
     std::array<std::atomic<int>, numPacks> packSlot {};      // device slot index, -1 = any
@@ -127,6 +138,7 @@ private:
     static constexpr int maxDevices = 8;
     std::array<juce::MidiMessageCollector, maxDevices> collectors;
     std::array<juce::String, maxDevices> slotNames;
+    std::array<std::atomic<bool>, maxDevices> slotIsArturia {};
     mutable juce::SpinLock slotLock;
     juce::MidiBuffer deviceMidi;
     std::atomic<bool> deviceInputsActive { false };

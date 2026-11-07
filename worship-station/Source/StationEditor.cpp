@@ -76,9 +76,12 @@ SetupPanel::SetupPanel (StationProcessor& p) : proc (p)
         content.addAndMakeVisible (row->clear);
         rows.push_back (std::move (row));
     };
-    addRow (StationProcessor::wheel, "Pack selector wheel / knob");
+    addRow (StationProcessor::patchWheel, "Patch wheel (presets)");
+    addRow (StationProcessor::nextPatch, "Next patch button");
+    addRow (StationProcessor::prevPatch, "Previous patch button");
     addRow (StationProcessor::nextPack, "Next pack button");
     addRow (StationProcessor::prevPack, "Previous pack button");
+    addRow (StationProcessor::wheel, "Pack wheel / knob");
     addRow (StationProcessor::selectKeys, "Keys button");
     addRow (StationProcessor::selectSynth, "Synth button");
     addRow (StationProcessor::selectOrch, "Orchestra button");
@@ -115,6 +118,8 @@ SetupPanel::SetupPanel (StationProcessor& p) : proc (p)
 
     doneButton.onClick = [this] { proc.cancelLearn(); if (onClose) onClose(); };
     addAndMakeVisible (doneButton);   // stays put while the page scrolls
+    arturiaButton.onClick = [this] { proc.cancelLearn(); proc.useArturiaDefaults(); };
+    addAndMakeVisible (arturiaButton);
 
     monitor.setFont (juce::Font (juce::FontOptions (14.0f, juce::Font::bold)));
     monitor.setColour (juce::Label::textColourId, juce::Colour (0xff7fe08a));
@@ -148,7 +153,7 @@ void SetupPanel::refresh (int blink)
     for (auto& row : rows)
     {
         auto isLearning = learning == row->control;
-        row->value.setText (isLearning ? (row->control == StationProcessor::wheel ? "turn the wheel now..." : "press the button / pad now...")
+        row->value.setText (isLearning ? (row->control == StationProcessor::wheel || row->control == StationProcessor::patchWheel ? "turn the wheel now..." : "press the button / pad now...")
                                        : proc.describeBinding (row->control),
                             juce::dontSendNotification);
         row->value.setColour (juce::Label::textColourId, isLearning ? juce::Colour (0xffffd24d) : colours::text);
@@ -192,7 +197,7 @@ void SetupPanel::paintContent (juce::Graphics& g)
     auto inner = content.getLocalBounds().reduced (20, 6);
     g.setFont (juce::Font (juce::FontOptions (13.0f)));
     g.setColour (colours::dim);
-    g.drawFittedText ("Press LEARN, then move the control on your keyboard. Arturia: use User / Arturia mode (not DAW mode) so the center wheel sends MIDI CC.",
+    g.drawFittedText ("KeyLab Essential mk3 works out of the box: center wheel = patches, arrow buttons = Keys / Synth / Orchestra. For other controls press LEARN, then move the control on your keyboard.",
                       inner.removeFromTop (34), juce::Justification::centredLeft, 2);
 
     g.setFont (juce::Font (juce::FontOptions (14.0f, juce::Font::bold)));
@@ -217,17 +222,18 @@ void SetupPanel::resized()
     plateArea = compactScreen ? safe.reduced (6, 4) : getLocalBounds().reduced (40, 24);
     auto top = plateArea.withHeight (44);
     doneButton.setBounds (top.removeFromRight (120).reduced (6, 7));
+    arturiaButton.setBounds (top.removeFromRight (compactScreen ? 150 : 190).reduced (6, 7));
     viewport.setBounds (plateArea.withTrimmedTop (44).reduced (8, 0).withTrimmedBottom (8));
 
     // Page is at least this big; a smaller screen scrolls instead of squeezing.
-    content.setSize (juce::jmax (viewport.getMaximumVisibleWidth(), 740), juce::jmax (viewport.getMaximumVisibleHeight(), 600));
+    content.setSize (juce::jmax (viewport.getMaximumVisibleWidth(), 740), juce::jmax (viewport.getMaximumVisibleHeight(), 600 + 3 * 38));
     auto inner = content.getLocalBounds().reduced (20, 6);
     inner.removeFromTop (40);
 
     monitor.setBounds (inner.removeFromBottom (26));
     inner.removeFromBottom (6);
 
-    controlsArea = inner.removeFromTop (6 * 38);
+    controlsArea = inner.removeFromTop ((int) rows.size() * 38);
     auto c = controlsArea;
     for (auto& row : rows)
     {
@@ -237,7 +243,7 @@ void SetupPanel::resized()
         r.removeFromRight (6);
         row->learn.setBounds (r.removeFromRight (100));
         r.removeFromRight (10);
-        if (row->control == StationProcessor::wheel)
+        if (row->control == StationProcessor::patchWheel)
         {
             wheelType.setBounds (r.removeFromRight (260));
             r.removeFromRight (10);

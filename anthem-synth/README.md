@@ -1,6 +1,6 @@
 # Anthem Synth
 
-A worship / anthem virtual-analog synthesizer for Windows (VST3 and standalone). It is voiced after the synth sounds of Elevation Worship, Hillsong and Planetshakers.
+A worship / anthem virtual-analog synthesizer for Windows (VST3 and standalone). It is voiced for modern worship and anthem synth sounds.
 
 **Engine (16 voices):** OSC A (7-saw supersaw / saw / square / triangle) + OSC B + sub + noise → stereo 4-pole ladder filter with drive → filter and amp envelopes. It also has an LFO (vibrato / filter / PWM), poly, mono and legato modes with glide, and the mod wheel opens the filter ("swell").
 **Motion:** tempo-synced pump (sidechain feel) or rhythmic gate (1/8, 1/16, trance pattern). It follows host tempo, or the Tempo knob when there is no host.
@@ -10,22 +10,24 @@ A worship / anthem virtual-analog synthesizer for Windows (VST3 and standalone).
 ## Presets
 | Preset | Idea |
 |---|---|
-| Elevation - Ambient Pad | Wide supersaw bed with an octave layer, slow swell, big shimmer hall |
-| Elevation - Pulse Pad | 16th-note gated pad for builds |
-| Elevation - Soaring Lead | Legato supersaw lead with vibrato and dotted delay |
-| Elevation - Moog Bass | Round mono bass |
-| Hillsong - Analog V Pad | Jupiter-style two-saw pad with a slow filter bloom |
-| Hillsong - United Pluck | Plucks that turn into dotted-eighth grooves |
-| Hillsong - Young & Free Pump | Bright pop supersaw chords pumping on the quarter note |
-| Hillsong - Oceans Swell | Soft string-machine swell with long shimmer |
-| Planetshakers - Our Time Anthem | "This Is Our Time"-style pumping stacked supersaw chords |
-| Planetshakers - Our Time Pluck | Bright supersaw pluck for hook lines |
-| Planetshakers - Turn It Up Lead | "Turn It Up"-style aggressive detuned lead with an octave layer |
-| Planetshakers - Turn It Up Stabs | Hold a chord and the arp chops it in 1/8 notes |
-| Planetshakers - Festival Arp | 1/16 two-octave arp |
-| Planetshakers - Drive Bass | Driven mono saw bass that ducks with the beat |
+| Ambient Supersaw Pad | Wide supersaw bed with an octave layer, slow swell, big shimmer hall |
+| 16th Pulse Pad | 16th-note gated pad for builds |
+| Soaring Lead | Legato supersaw lead with vibrato and dotted delay |
+| Round Analog Bass | Round mono bass |
+| Analog Bloom Pad | Jupiter-style two-saw pad with a slow filter bloom |
+| Dotted Echo Pluck | Plucks that turn into dotted-eighth grooves |
+| Pop Pump Chords | Bright pop supersaw chords pumping on the quarter note |
+| String Machine Swell | Soft string-machine swell with long shimmer |
+| Anthem Pump Supersaw | Pumping stacked supersaw chords |
+| Bright Hook Pluck | Bright supersaw pluck for hook lines |
+| Hype Saw Lead | Aggressive detuned lead with an octave layer |
+| Chopped Chord Stabs | Hold a chord and the arp chops it in 1/8 notes |
+| Festival Arp | 1/16 two-octave arp |
+| Driven Saw Bass | Driven mono saw bass that ducks with the beat |
+| Instant Trance Saw | Zero-attack epic trance supersaw for fast upbeat songs (no pump, so notes hit on the beat) |
+| Electro Hook Synth | Bouncy, driven supersaw hook for upbeat intros; instant attack |
 | Build-Up Riser | Noise and saws that open up over about 8 bars |
-| Prayer - Shimmer Cloud | Soft ambient cloud for prayer moments |
+| Shimmer Cloud | Soft ambient cloud for ambient moments |
 | Init - Basic Saw | Starting point |
 
 The voicings are educated estimates, not copies of the bands' patches.
