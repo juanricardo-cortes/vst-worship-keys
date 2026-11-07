@@ -24,6 +24,7 @@
 #include <utility>
 #include <vector>
 #include "../../worship-keys/Source/HardwareLook.h"
+#include "../../worship-keys/Source/AndroidAssets.h"
 
 namespace keyspack
 {

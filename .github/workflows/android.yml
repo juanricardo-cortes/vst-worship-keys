@@ -1,0 +1,83 @@
+# Builds the Android app (Worship Station: Keys + Synth + Orchestra, samples inside) on a GitHub Linux runner.
+# JUCE's CMake API can't target Android, so this uses worship-station/Android/WorshipStation.jucer:
+# build the Projucer, re-save the .jucer into an Android Studio project, then Gradle -> WorshipStation.apk.
+# Install: copy the .apk to the phone and open it (allow "Install unknown apps" when asked).
+name: Android build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [worship-keys/**, anthem-synth/**, worship-station/**, .github/workflows/android.yml]
+
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: worship-station/Android
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Projucer dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq libfreetype-dev libfontconfig1-dev libx11-dev libxrandr-dev libxinerama-dev \
+            libxcursor-dev libxcomposite-dev libxext-dev libgl1-mesa-dev libasound2-dev libcurl4-openssl-dev \
+            libgtk-3-dev xvfb
+
+      - name: JUCE 8.0.4 + Projucer
+        run: |
+          git clone -q --depth 1 --branch 8.0.4 https://github.com/juce-framework/JUCE.git JUCE
+          cmake -S JUCE -B projucer-build -DJUCE_BUILD_EXTRAS=ON -DCMAKE_BUILD_TYPE=Release > /dev/null
+          cmake --build projucer-build --target Projucer -j4
+
+      - name: Stage samples as app assets
+        run: |
+          mkdir -p assets/WorshipKeys assets/WorshipStation/Samples
+          cp -R ../../worship-keys/Samples assets/WorshipKeys/Samples
+          cp -R ../Samples/Orchestra assets/WorshipStation/Samples/Orchestra
+          test -f assets/WorshipKeys/Samples/tuning.txt || { echo "piano samples missing"; exit 1; }
+          test -f assets/WorshipStation/Samples/Orchestra/VlnStac/map.txt || { echo "orchestra samples missing"; exit 1; }
+          du -sh assets
+
+      - name: Generate the Android Studio project
+        run: |
+          PROJUCER=$(find projucer-build -type f -name Projucer -perm -u+x | head -1)
+          xvfb-run -a "$PROJUCER" --resave WorshipStation.jucer
+          echo "sdk.dir=$ANDROID_HOME" > Builds/Android/local.properties
+
+      # One fixed key, so a new APK installs over the old one. It's committed as Android/signing.jks;
+      # the first run makes it and uploads it for committing.
+      - name: Signing key
+        run: |
+          mkdir -p ~/.android
+          if [ -f signing.jks ]; then
+            cp signing.jks ~/.android/worshipstation.jks
+          else
+            keytool -genkeypair -keystore ~/.android/worshipstation.jks -storetype JKS -storepass android \
+              -keypass android -alias worshipstation -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Worship Station"
+            cp ~/.android/worshipstation.jks signing.jks
+          fi
+
+      - name: Build APK
+        working-directory: worship-station/Android/Builds/Android
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon -q assembleRelease_Release
+          APK=$(find app/build/outputs/apk -name "*.apk" | head -1)
+          test -n "$APK" || { echo "no apk"; exit 1; }
+          cp "$APK" ../../WorshipStation.apk
+          ls -lh ../../WorshipStation.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WorshipStation-Android
+          path: |
+            worship-station/Android/WorshipStation.apk
+            worship-station/Android/signing.jks

@@ -1,0 +1,6 @@
+# Made by the Android workflow (or a local Projucer re-save): never commit these.
+JUCE
+Builds/
+JuceLibraryCode/
+assets/
+projucer-build/

@@ -1,4 +1,5 @@
 #include "OrchSampleBank.h"
+#include "../../../worship-keys/Source/AndroidAssets.h"
 
 namespace orch
 {
@@ -165,6 +166,10 @@ SharedOrchBank::SharedOrchBank()
     setStatus ("Loading orchestra samples...");
     loader = std::thread ([this]
     {
+       #if JUCE_ANDROID
+        unpackAndroidAssets ("WorshipStation/Samples/Orchestra", [this] (const juce::String& s) { setStatus ("Orchestra: " + s); });
+        setStatus ("Loading orchestra samples...");
+       #endif
         for (auto& dir : getSearchFolders())
         {
             if (! dir.isDirectory())
@@ -178,7 +183,11 @@ SharedOrchBank::SharedOrchBank()
             if (abort.load())
                 return;
         }
+       #if JUCE_IOS || JUCE_ANDROID
+        setStatus ("Orchestra samples missing from the app - reinstall it");
+       #else
         setStatus ("Orchestra samples not found - copy them to C:\\ProgramData\\WorshipStation\\Samples\\Orchestra");
+       #endif
     });
 }
 

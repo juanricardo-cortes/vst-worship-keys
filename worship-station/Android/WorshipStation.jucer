@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- Android build of Worship Station (JUCE's CMake API can't target Android, so this Projucer project
+     exists only for the Android Studio exporter). The CI workflow .github/workflows/android.yml clones JUCE 8.0.4
+     into Android/JUCE, stages the samples into Android/assets, re-saves this file and runs Gradle. -->
+<JUCERPROJECT id="WsAndr01" name="Worship Station" projectType="audioplug" version="0.1.0"
+              bundleIdentifier="com.robert.worshipstation" companyName="Robert"
+              pluginFormats="buildStandalone" pluginCharacteristicsValue="pluginIsSynth,pluginWantsMidiIn"
+              pluginName="Worship Station" pluginDesc="Worship Station" pluginManufacturer="Robert"
+              pluginManufacturerCode="Rbpa" pluginCode="WsSt" pluginChannelConfigs=""
+              displaySplashScreen="0" cppLanguageStandard="17" useAppConfig="0"
+              addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1"
+              defines="JUCE_WEB_BROWSER=0&#10;JUCE_USE_CURL=0&#10;JUCE_DISPLAY_SPLASH_SCREEN=0&#10;JUCE_USE_FLAC=1">
+  <MAINGROUP id="WsGrp001" name="Worship Station">
+    <GROUP id="WsGrp002" name="Source">
+      <FILE id="WsF00001" name="StationProcessor.cpp" compile="1" resource="0" file="../Source/StationProcessor.cpp"/>
+      <FILE id="WsF00002" name="StationEditor.cpp" compile="1" resource="0" file="../Source/StationEditor.cpp"/>
+      <FILE id="WsF00003" name="KeysProcessor.cpp" compile="1" resource="0" file="../Source/Packs/KeysProcessor.cpp"/>
+      <FILE id="WsF00004" name="KeysEditor.cpp" compile="1" resource="0" file="../Source/Packs/KeysEditor.cpp"/>
+      <FILE id="WsF00005" name="KeysSampleBank.cpp" compile="1" resource="0" file="../Source/Packs/KeysSampleBank.cpp"/>
+      <FILE id="WsF00006" name="SynthProcessor.cpp" compile="1" resource="0" file="../Source/Packs/SynthProcessor.cpp"/>
+      <FILE id="WsF00007" name="SynthEditor.cpp" compile="1" resource="0" file="../Source/Packs/SynthEditor.cpp"/>
+      <FILE id="WsF00008" name="OrchSampleBank.cpp" compile="1" resource="0" file="../Source/Orchestra/OrchSampleBank.cpp"/>
+      <FILE id="WsF00009" name="OrchProcessor.cpp" compile="1" resource="0" file="../Source/Orchestra/OrchProcessor.cpp"/>
+      <FILE id="WsF00010" name="OrchEditor.cpp" compile="1" resource="0" file="../Source/Orchestra/OrchEditor.cpp"/>
+    </GROUP>
+  </MAINGROUP>
+  <MODULES>
+    <MODULE id="juce_audio_basics" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_audio_devices" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_audio_formats" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_audio_plugin_client" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_audio_processors" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_audio_utils" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_core" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_data_structures" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_dsp" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_events" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_graphics" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_gui_basics" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_gui_extra" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+  </MODULES>
+  <JUCEOPTIONS JUCE_USE_FLAC="1" JUCE_WEB_BROWSER="0" JUCE_USE_CURL="0" JUCE_USE_ANDROID_OBOE="1"/>
+  <EXPORTFORMATS>
+    <ANDROIDSTUDIO targetFolder="Builds/Android" androidMinimumSDK="24" androidTargetSDK="34"
+                   androidScreenOrientation="landscape" androidExtraAssetsFolder="assets"
+                   androidVersionCode="1" androidInternetNeeded="0"
+                   androidExternalWriteNeeded="0" androidReadMediaAudioPermission="0"
+                   androidReadMediaImagesPermission="0" androidReadMediaVideoPermission="0"
+                   androidKeyStore="${user.home}/.android/worshipstation.jks" androidKeyStorePass="android"
+                   androidKeyAlias="worshipstation" androidKeyAliasPass="android">
+      <CONFIGURATIONS>
+        <CONFIGURATION name="Debug" isDebug="1" optimisation="3" linkTimeOptimisation="0" targetName="WorshipStation" androidArchitectures="arm64-v8a"/>
+        <CONFIGURATION name="Release" isDebug="0" optimisation="3" linkTimeOptimisation="1" targetName="WorshipStation" androidArchitectures="arm64-v8a"/>
+      </CONFIGURATIONS>
+      <MODULEPATHS>
+        <MODULEPATH id="juce_audio_basics" path="JUCE/modules"/>
+        <MODULEPATH id="juce_audio_devices" path="JUCE/modules"/>
+        <MODULEPATH id="juce_audio_formats" path="JUCE/modules"/>
+        <MODULEPATH id="juce_audio_plugin_client" path="JUCE/modules"/>
+        <MODULEPATH id="juce_audio_processors" path="JUCE/modules"/>
+        <MODULEPATH id="juce_audio_utils" path="JUCE/modules"/>
+        <MODULEPATH id="juce_core" path="JUCE/modules"/>
+        <MODULEPATH id="juce_data_structures" path="JUCE/modules"/>
+        <MODULEPATH id="juce_dsp" path="JUCE/modules"/>
+        <MODULEPATH id="juce_events" path="JUCE/modules"/>
+        <MODULEPATH id="juce_graphics" path="JUCE/modules"/>
+        <MODULEPATH id="juce_gui_basics" path="JUCE/modules"/>
+        <MODULEPATH id="juce_gui_extra" path="JUCE/modules"/>
+      </MODULEPATHS>
+    </ANDROIDSTUDIO>
+  </EXPORTFORMATS>
+</JUCERPROJECT>

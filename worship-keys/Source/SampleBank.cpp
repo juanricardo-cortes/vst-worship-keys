@@ -1,4 +1,5 @@
 #include "SampleBank.h"
+#include "AndroidAssets.h"
 #include <map>
 
 bool SampleBank::loadFromFolder (const juce::File& folder, const std::atomic<bool>& shouldAbort, std::atomic<float>& progress)
@@ -113,6 +114,10 @@ SharedSampleBank::SharedSampleBank()
     setStatus ("Loading piano samples...");
     loader = std::thread ([this]
     {
+       #if JUCE_ANDROID
+        unpackAndroidAssets ("WorshipKeys/Samples", [this] (const juce::String& s) { setStatus ("Piano: " + s); });
+        setStatus ("Loading piano samples...");
+       #endif
         for (auto& dir : getSearchFolders())
         {
             if (! dir.isDirectory())
