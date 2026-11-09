@@ -52,18 +52,15 @@ jobs:
           xvfb-run -a "$PROJUCER" --resave WorshipStation.jucer
           echo "sdk.dir=$ANDROID_HOME" > Builds/Android/local.properties
 
-      # One fixed key, so a new APK installs over the old one. It's committed as Android/signing.jks;
-      # the first run makes it and uploads it for committing.
+      # One fixed key, so a new APK installs over the old one. It lives in the repo secret
+      # ANDROID_SIGNING_JKS_B64 (base64 of the .jks) and is never committed or uploaded.
       - name: Signing key
+        env:
+          SIGNING_JKS_B64: ${{ secrets.ANDROID_SIGNING_JKS_B64 }}
         run: |
+          test -n "$SIGNING_JKS_B64" || { echo "secret ANDROID_SIGNING_JKS_B64 is not set"; exit 1; }
           mkdir -p ~/.android
-          if [ -f signing.jks ]; then
-            cp signing.jks ~/.android/worshipstation.jks
-          else
-            keytool -genkeypair -keystore ~/.android/worshipstation.jks -storetype JKS -storepass android \
-              -keypass android -alias worshipstation -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Worship Station"
-            cp ~/.android/worshipstation.jks signing.jks
-          fi
+          echo "$SIGNING_JKS_B64" | base64 -d > ~/.android/worshipstation.jks
 
       - name: Build APK
         working-directory: worship-station/Android/Builds/Android
@@ -78,6 +75,4 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: WorshipStation-Android
-          path: |
-            worship-station/Android/WorshipStation.apk
-            worship-station/Android/signing.jks
+          path: worship-station/Android/WorshipStation.apk
