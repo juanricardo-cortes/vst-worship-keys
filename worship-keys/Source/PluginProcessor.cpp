@@ -107,6 +107,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout WorshipKeysProcessor::create
     p.push_back (std::make_unique<juce::AudioParameterChoice> (juce::ParameterID { "stackModel", 1 }, "Stack Piano", pianoChoices (true), 0));
     add ("stackLevel", "Stack Level", Range (-30, 0, 0.1f), -6, "dB");
 
+    // Grand: weight and size without darkening the piano. All off by default.
+    add ("depth", "Depth", Range (0, 1), 0.0f);
+    add ("body", "Body", Range (0, 6, 0.1f), 0.0f, "dB");
+    add ("width", "Width", Range (0, 1), 0.0f);
+    add ("bloom", "Bloom", Range (0, 1), 0.0f);
+    add ("hallMix", "Hall", Range (0, 1), 0.0f);
+    add ("hallDecay", "Hall Time", skewed (2.0f, 12.0f, 5.0f), 5.0f, "s");
+
     return { p.begin(), p.end() };
 }
 
@@ -148,6 +156,7 @@ void WorshipKeysProcessor::readParams (EngineParams& e, fx::Params& f)
     e.pianoRelease = param ("pianoRelease");
     e.pianoTone = param ("pianoTone");
     e.pianoLow = param ("pianoLow");
+    e.depth = param ("depth");
     auto model = juce::jlimit (0, SharedSampleBank::numPianos - 1, (int) std::lround (param ("pianoModel")));
     auto stack = (int) std::lround (param ("stackModel")) - 1;
     pianoModel = sharedBank->isLoaded (model) ? model : 0; // the original grand plays until the chosen one has loaded
@@ -189,6 +198,11 @@ void WorshipKeysProcessor::readParams (EngineParams& e, fx::Params& f)
     f.revPreDelayMs = param ("revPreDelay");
     f.revToneHz = param ("revTone");
     f.shimmer = param ("shimmer");
+    f.bodyDb = param ("body");
+    f.width = param ("width");
+    f.bloom = param ("bloom");
+    f.hallMix = param ("hallMix");
+    f.hallDecay = param ("hallDecay");
     f.masterDb = param ("master");
 
     double bpm = 120.0;

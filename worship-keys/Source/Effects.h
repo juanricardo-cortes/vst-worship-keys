@@ -100,6 +100,8 @@ struct Params
     float chorusMix = 0.2f, chorusRate = 0.3f;
     float delayMix = 0.0f, delayFeedback = 0.3f, delaySamples = 22050;
     float revMix = 0.3f, revDecay = 3.0f, revSize = 0.7f, revPreDelayMs = 30, revToneHz = 6000, shimmer = 0.0f;
+    // Grand: weight and size without darkening (all off by default)
+    float bodyDb = 0, width = 0, bloom = 0, hallMix = 0, hallDecay = 5.0f;
     float masterDb = 0;
 };
 
@@ -116,7 +118,8 @@ public:
         bands[2].peak (sr, 300.0, 1.0, p.lowMid);
         bands[3].peak (sr, 4000.0, 0.8, p.presence);
         bands[4].highShelf (sr, 10000.0, p.air);
-        bands[5].lowPass (sr, 16000.0); // trims digital sizzle
+        bands[5].peak (sr, 180.0, 0.8, p.bodyDb); // "Body": the warm weight of a big instrument
+        bands[6].lowPass (sr, 16000.0); // trims digital sizzle
     }
 
     void process (float* L, float* R, int n)
@@ -131,7 +134,7 @@ public:
 
 private:
     double sr = 44100;
-    Biquad bands[6];
+    Biquad bands[7];
 };
 
 //==============================================================================
@@ -238,6 +241,64 @@ private:
 };
 
 //==============================================================================
+// "Bloom": parallel compression. A heavily squashed copy is mixed under the dry signal, so notes swell into
+// a dense, sustaining body after the attack instead of decaying away.
+class Bloom
+{
+public:
+    void prepare (double newSr)
+    {
+        sr = newSr;
+        envDb = 0;
+        attackCoef = (float) std::exp (-1.0 / (0.004 * sr));
+        releaseCoef = (float) std::exp (-1.0 / (0.35 * sr));
+    }
+
+    void process (float* L, float* R, int n, float amount)
+    {
+        if (amount <= 0.001f) { envDb = 0; return; }
+        constexpr float thr = -34.0f, slope = 1.0f / 10.0f - 1.0f, makeup = 16.0f;
+        for (int i = 0; i < n; ++i)
+        {
+            auto over = juce::Decibels::gainToDecibels (juce::jmax (std::abs (L[i]), std::abs (R[i])), -120.0f) - thr;
+            auto gr = over > 0 ? slope * over : 0.0f;
+            envDb = gr + (gr < envDb ? attackCoef : releaseCoef) * (envDb - gr);
+            auto g = 0.5f * amount * juce::Decibels::decibelsToGain (envDb + makeup);
+            L[i] += L[i] * g;
+            R[i] += R[i] * g;
+        }
+    }
+
+private:
+    double sr = 44100;
+    float envDb = 0, attackCoef = 0, releaseCoef = 0;
+};
+
+//==============================================================================
+// "Width": mid/side. Lifts the side signal above 300 Hz only, so the piano spreads out while the bass stays centred.
+class Widener
+{
+public:
+    void prepare (double sr) { hp.highPass (sr, 300.0); hp.reset(); }
+
+    void process (float* L, float* R, int n, float width)
+    {
+        if (width <= 0.001f) return;
+        auto amount = 0.9f * width;
+        for (int i = 0; i < n; ++i)
+        {
+            auto mid = 0.5f * (L[i] + R[i]), side = 0.5f * (L[i] - R[i]);
+            side += amount * hp.process (side, 0);
+            L[i] = mid + side;
+            R[i] = mid - side;
+        }
+    }
+
+private:
+    Biquad hp;
+};
+
+//==============================================================================
 // Ping-pong delay with band-limited repeats (300 Hz - 4 kHz), the ambient worship-guitar trick.
 class TempoDelay
 {
@@ -313,6 +374,9 @@ struct OctaveUp
 class ShimmerReverb
 {
 public:
+    // The same tank serves as the "Hall": longer lines, and a warmer tail (less low cut on the way in).
+    void configure (float newLengthScale, float newInputHpHz) { lengthScale = newLengthScale; inputHpHz = newInputHpHz; }
+
     void prepare (double newSr)
     {
         sr = newSr;
@@ -321,11 +385,11 @@ public:
         for (int i = 0; i < 4; ++i) { ap[i].init ((int) (apMs[i] * 0.001 * sr) + 4); apLen[i] = apMs[i] * 0.001f * (float) sr; }
         for (int i = 0; i < N; ++i)
         {
-            lines[i].init ((int) (0.2 * sr));
-            len[i] = baseMs[i] * 0.001f * (float) sr;
+            lines[i].init ((int) (0.2 * lengthScale * sr));
+            len[i] = baseMs[i] * lengthScale * 0.001f * (float) sr;
             damp[i] = 0;
         }
-        inHp.highPass (sr, 220.0); // keep reverb out of the low end
+        inHp.highPass (sr, inputHpHz); // keep reverb out of the low end
         shHp.highPass (sr, 400.0);
         shLp.lowPass (sr, 7000.0);
         shifter.prepare (sr);
@@ -333,9 +397,10 @@ public:
         modPhase = 0;
     }
 
-    void process (float* L, float* R, int n, const Params& p)
+    // wetOnly: write just the reverb (for a reverb that runs in parallel with another).
+    void process (float* L, float* R, int n, const Params& p, bool wetOnly = false)
     {
-        auto sizeScale = 0.6f + 1.1f * p.revSize;
+        auto sizeScale = (0.6f + 1.1f * p.revSize) * lengthScale;
         float target[N], fb[N];
         for (int k = 0; k < N; ++k)
         {
@@ -348,7 +413,7 @@ public:
         auto modDepth = 0.0012f * (float) sr * 0.5f;
         auto shimmer = p.shimmer;
         auto wetGain = p.revMix * 0.9f;
-        auto dryGain = 1.0f - 0.25f * p.revMix;
+        auto dryGain = wetOnly ? 0.0f : 1.0f - 0.25f * p.revMix;
 
         for (int i = 0; i < n; ++i)
         {
@@ -413,7 +478,7 @@ private:
     float apLen[4] {}, len[N] {}, damp[N] {};
     Biquad inHp, shHp, shLp;
     OctaveUp shifter;
-    float shimmerFb = 0;
+    float shimmerFb = 0, lengthScale = 1.0f, inputHpHz = 220.0f;
 };
 
 //==============================================================================
@@ -427,6 +492,11 @@ public:
         chorus.prepare (sr);
         delay.prepare (sr);
         reverb.prepare (sr);
+        bloom.prepare (sr);
+        widener.prepare (sr);
+        hall.configure (2.3f, 80.0f);
+        hall.prepare (sr);
+        hallBuf.setSize (2, maxBlock);
         limiter.prepare ({ sr, (juce::uint32) maxBlock, 2 });
         limiter.setThreshold (-0.8f);
         limiter.setRelease (120.0f);
@@ -441,10 +511,35 @@ public:
         eq.update (p);
         eq.process (L, R, n);
         comp.process (L, R, n, p.comp);
+        bloom.process (L, R, n, p.bloom);
         softClip (L, R, n, p.drive);
         chorus.process (L, R, n, p.chorusMix, p.chorusRate);
+        widener.process (L, R, n, p.width);
         delay.process (L, R, n, p.delayMix, p.delayFeedback, p.delaySamples);
+
+        // Hall: a big, warm second reverb in parallel with the room reverb (fed the same signal).
+        auto hallOn = p.hallMix > 0.001f;
+        if (hallOn)
+        {
+            if (n > hallBuf.getNumSamples()) // a host sent more than it announced
+                hallBuf.setSize (2, n, false, false, true);
+            hallBuf.copyFrom (0, 0, L, n);
+            hallBuf.copyFrom (1, 0, R, n);
+            auto hp = p;
+            hp.revMix = p.hallMix;
+            hp.revDecay = p.hallDecay;
+            hp.revSize = 1.0f;
+            hp.revPreDelayMs = 45.0f;
+            hp.revToneHz = 4800.0f; // a warm tail: big without hiss
+            hp.shimmer = 0.0f;
+            hall.process (hallBuf.getWritePointer (0), hallBuf.getWritePointer (1), n, hp, true);
+        }
         reverb.process (L, R, n, p);
+        if (hallOn)
+        {
+            juce::FloatVectorOperations::add (L, hallBuf.getReadPointer (0), n);
+            juce::FloatVectorOperations::add (R, hallBuf.getReadPointer (1), n);
+        }
 
         master.setTargetValue (juce::Decibels::decibelsToGain (p.masterDb));
         for (int i = 0; i < n; ++i)
@@ -466,7 +561,10 @@ private:
     Compressor comp;
     Chorus chorus;
     TempoDelay delay;
-    ShimmerReverb reverb;
+    ShimmerReverb reverb, hall;
+    Bloom bloom;
+    Widener widener;
+    juce::AudioBuffer<float> hallBuf;
     juce::dsp::Limiter<float> limiter;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> master { 1.0f };
 };

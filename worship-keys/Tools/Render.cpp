@@ -81,7 +81,7 @@ int main (int argc, char** argv)
         return sustainIgnored && mapped && atTop && atBottom ? 0 : 3;
     }
 
-    auto outDir = juce::File::getCurrentWorkingDirectory().getChildFile (argc > 1 ? argv[1] : "renders");
+    auto outDir = juce::File::getCurrentWorkingDirectory().getChildFile (argc > 1 && argv[1][0] != '-' ? argv[1] : "renders");
     outDir.createDirectory();
 
     constexpr int block = 256;
@@ -95,6 +95,60 @@ int main (int argc, char** argv)
     std::cout << proc.getSampleStatus() << "\n";
     if (! proc.samplesReady())
         return 1;
+
+    // --cpu: worst-case processing time per block for every preset, playing a busy passage with the pedal held
+    // (16th-note arpeggios over two hands, 8 s, no pedal lift), as a share of the time the block lasts.
+    if (argc > 1 && juce::String (argv[1]) == "--cpu")
+    {
+        const double blockMs = 1000.0 * block / sr;
+        for (int prog = 0; prog < proc.getNumPrograms(); ++prog)
+        {
+            proc.setCurrentProgram (prog);
+            for (auto* id : { "pianoModel", "stackModel" })
+            {
+                auto piano = (int) proc.apvts.getRawParameterValue (id)->load() - (juce::String (id) == "stackModel" ? 1 : 0);
+                if (piano <= 0) continue;
+                proc.requestPiano (piano);
+                for (int i = 0; i < 1200 && ! proc.pianoLoaded (piano); ++i) juce::Thread::sleep (100);
+            }
+            proc.prepareToPlay (sr, block);
+            juce::MidiBuffer events;
+            events.addEvent (juce::MidiMessage::controllerEvent (1, 64, 127), 0);
+            const int pattern[] = { 0, 7, 12, 16, 19, 24, 19, 16 };
+            const int roots[] = { 36, 43, 45, 41 };
+            juce::Random rng (prog);
+            for (int step = 0; step < 128; ++step)   // 16 notes / s for 8 s
+            {
+                auto t = (int) (step * 0.0625 * sr);
+                auto root = roots[(step / 32) % 4];
+                for (auto n : { root + pattern[step % 8], root + 24 + pattern[(step + 3) % 8] })
+                {
+                    events.addEvent (juce::MidiMessage::noteOn (1, n, (juce::uint8) (60 + rng.nextInt (60))), t);
+                    events.addEvent (juce::MidiMessage::noteOff (1, n), t + (int) (0.05 * sr));
+                }
+            }
+            juce::AudioBuffer<float> buf (2, block);
+            double worst = 0, total = 0;
+            int blocks = 0;
+            for (int pos = 0; pos < (int) (10.0 * sr); pos += block)
+            {
+                juce::MidiBuffer midi;
+                for (auto m : events)
+                    if (m.samplePosition >= pos && m.samplePosition < pos + block)
+                        midi.addEvent (m.getMessage(), m.samplePosition - pos);
+                auto t0 = juce::Time::getHighResolutionTicks();
+                proc.processBlock (buf, midi);
+                auto ms = juce::Time::highResolutionTicksToSeconds (juce::Time::getHighResolutionTicks() - t0) * 1000.0;
+                worst = juce::jmax (worst, ms);
+                total += ms;
+                ++blocks;
+            }
+            std::cout << juce::String (proc.getProgramName (prog)).paddedRight (' ', 30)
+                      << " avg " << juce::String (100.0 * total / blocks / blockMs, 1) << "%"
+                      << "  worst block " << juce::String (100.0 * worst / blockMs, 1) << "% of " << juce::String (blockMs, 2) << " ms\n";
+        }
+        return 0;
+    }
 
     // chord tones (MIDI), bar length 2 s at 120 bpm (one bar of 4/4)
     const std::vector<std::vector<int>> chords {

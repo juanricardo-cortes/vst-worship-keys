@@ -114,9 +114,11 @@ WorshipKeysEditor::WorshipKeysEditor (WorshipKeysProcessor& p)
     auto* bells = section ("BELLS", { addKnob ("bellLevel", "Level"), addKnob ("bellTone", "Tone"), addKnob ("bellDecay", "Decay"),
                                       addChoice ("bellOctave", "Octave", { "0", "+1", "+2" }, 1) });
     auto* stack = section ("STACK", { addChoice ("stackModel", "Piano", stackPianos, 1), addKnob ("stackLevel", "Level") });
+    auto* grand = section ("GRAND", { addKnob ("depth", "Depth"), addKnob ("body", "Body"), addKnob ("width", "Width"),
+                                      addKnob ("bloom", "Bloom"), addKnob ("hallMix", "Hall"), addKnob ("hallDecay", "Hall Time") });
     auto* out = section ("OUTPUT", { addKnob ("master", "Master") });
-    wideRows = { { piano, ep, pad }, { eq, dyn, mod }, { bells, stack, rev, out } };
-    compactRows = { { piano }, { ep }, { pad }, { eq, dyn }, { mod }, { bells, stack, out }, { rev } };
+    wideRows = { { piano, ep }, { pad, stack, dyn }, { eq, grand }, { mod, bells, rev, out } };
+    compactRows = { { piano }, { ep }, { pad }, { grand }, { eq, dyn }, { mod }, { bells, stack, out }, { rev } };
 
     // The Easy page: the handful of things you reach for mid-song.
     addFader ("pianoLevel", "PIANO");
@@ -125,6 +127,8 @@ WorshipKeysEditor::WorshipKeysEditor (WorshipKeysProcessor& p)
     addFader ("bellLevel", "BELLS");
     addFader ("pianoTone", "TONE");
     addFader ("revMix", "REVERB");
+    addFader ("hallMix", "HALL");
+    addFader ("depth", "DEPTH");
     addFader ("delayMix", "DELAY");
     addFader ("master", "MASTER");
 
@@ -169,7 +173,7 @@ WorshipKeysEditor::WorshipKeysEditor (WorshipKeysProcessor& p)
    #if JUCE_IOS || JUCE_ANDROID
     setResizeLimits (320, 240, 4000, 4000); // the standalone window stretches the editor to fill the screen
    #endif
-    setSize (1120, 640);
+    setSize (1120, 720);
     setEasyView (proc.easyView);
     timerCallback();
     startTimerHz (15);

@@ -21,6 +21,7 @@ struct EngineParams
     float pianoTone = 0.55f;   // 0 = dark felt, 1 = open (filter bypassed)
     float pianoLow = 0.0f;     // level of a second piano voice an octave below each key (0 = off)
     float stackLevel = 0.0f;   // level of the stacked second piano (its own samples), 0 = off
+    float depth = 0.0f;        // octave-below layer that grows toward the treble: high notes sound deep, bass stays clean
     float epBell = 0.5f;       // tine "ping"
     float epBark = 0.4f;       // velocity growl
     float epDecay = 1.0f;      // decay length multiplier
@@ -434,10 +435,12 @@ public:
             v.start (*bank, note, vc, sr);
             mark (v);
             // Octave-down layer: the second string that makes a stage piano sound huge (A0 is the lowest sample).
-            if (p.pianoLow > 0.001f && note - 12 >= 21)
+            // Low Oct is the same on every key; Depth fades in from about D3 and is full from about G#5 up.
+            auto lowLevel = p.pianoLow + p.depth * juce::jlimit (0.0f, 1.0f, (float) (note - 50) / 30.0f);
+            if (lowLevel > 0.001f && note - 12 >= 21)
             {
                 auto& low = allocate (piano);
-                low.start (*bank, note, vc, sr, -12, p.pianoLow);
+                low.start (*bank, note, vc, sr, -12, lowLevel);
                 mark (low);
             }
             // A second, different piano on top: two instruments' tone and attack at once.

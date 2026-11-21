@@ -120,6 +120,10 @@ int main (int argc, char** argv)
 
     auto& keys = dynamic_cast<keyspack::WorshipKeysProcessor&> (st.getPack (0));
     auto& orchestra = dynamic_cast<orch::OrchestraProcessor&> (st.getPack (2));
+    // The routing tests need a Keys patch whose tail dies within a few seconds (the GRAND patches ring for longer).
+    int shortKeys = 0;
+    for (int i = 0; i < keys.getNumPrograms(); ++i)
+        if (keys.getProgramName (i) == "Warm Stage Grand") shortKeys = i;
     for (int i = 0; i < 1200 && ! (keys.samplesReady() && orchestra.samplesReady()); ++i)
         juce::Thread::sleep (100);
     std::cout << keys.getSampleStatus() << "\n" << orchestra.getSampleStatus() << "\n";
@@ -248,7 +252,7 @@ int main (int argc, char** argv)
 
     //==========================================================================
     std::cout << "\nSwitching + routing\n";
-    keys.setCurrentProgram (0);
+    keys.setCurrentProgram (shortKeys);
     orchestra.setCurrentProgram (0);
     st.getPack (1).setCurrentProgram (0);
 
@@ -324,7 +328,7 @@ int main (int argc, char** argv)
         set ("pianoLow", 0.5f);
         auto layered = bandAt65();
         check (layered > plain + 6.0, "Keys: Low Octave adds the octave-down string (+" + juce::String (layered - plain, 1) + " dB at 65 Hz)");
-        keys.setCurrentProgram (0);
+        keys.setCurrentProgram (shortKeys);
     }
 
     // Out of the box (KeyLab Essential mk3): wheel CC 114 sends 64 then 65 / 63 per click = patches,
@@ -444,7 +448,7 @@ int main (int argc, char** argv)
     st.setPackDevice (0, keylab);
     st.setPackDevice (1, other);
     st.setPackDevice (2, third);
-    for (int p = 0; p < StationProcessor::numPacks; ++p) st.getPack (p).setCurrentProgram (0);
+    for (int p = 0; p < StationProcessor::numPacks; ++p) st.getPack (p).setCurrentProgram (p == 0 ? shortKeys : 0);
     st.selectPack (1);   // Synth on screen
     wait (st, 8.0);      // the Synth's long shimmer tails from the tests above must die away
     auto fromDevice = [&] (const juce::String& dev, std::vector<juce::MidiMessage> msgs, double seconds)
@@ -476,7 +480,7 @@ int main (int argc, char** argv)
     // The KeyLab wheel changes the patch of the pack the KeyLab plays (Keys), not the one on screen (Synth).
     fromDevice (keylab, { cc (114, 64), cc (114, 65) }, 0.05);
     st.applyPendingPatchChange();
-    check (st.getPack (0).getCurrentProgram() == 1 && st.getPack (1).getCurrentProgram() == 0, "KeyLab wheel -> next Keys patch in split mode");
+    check (st.getPack (0).getCurrentProgram() == shortKeys + 1 && st.getPack (1).getCurrentProgram() == 0, "KeyLab wheel -> next Keys patch in split mode");
     // Another keyboard's knob on CC 26 / CC 114 is just a knob for its own pack.
     fromDevice (other, { cc (26, 127), cc (26, 0), cc (114, 65) }, 0.05);
     st.applyPendingPatchChange();
