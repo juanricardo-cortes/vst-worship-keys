@@ -30,12 +30,28 @@ Voiced darker than the raw samples. Pad and piano levels are comparable, so a Pa
 | Grand + EP Blend | Piano with the EP layered underneath |
 | Ambient Pad Wash (pad forward) | The one pad-forward patch, for transitions |
 | Studio Grand (dry, open) | No processing, tone filter off: the raw samples |
+| Anthem Ballad Grand | Concert grand with a second grand stacked under it, wide pad, long hall: the big modern worship ballad piano |
+| Concert Grand + Pad / Big Hall | The 9 ft concert grand, with a pad or on its own in a big hall |
+| Wall of Grands | Concert + session grand stacked, the octave-down string and a pad: as big as it gets |
+| Clear Grand + Warm Pad / Session Grand Ballad | The other two new pianos with a pad |
+
+## Pianos
+The **Piano** menu (Full page) picks the sampled piano; **Stack** plays a second piano on top of it; **Low Oct** adds an octave-down string.
+The original grand loads at startup; the others load in the background the first time a patch uses one (about 250 MB of RAM each).
+
+| Piano | Samples |
+|---|---|
+| Classic Grand | Salamander Grand Piano V3 (Yamaha C5) - `Samples/` |
+| Concert Grand | bitKlavier Grand (Steinway D), Lip Cardioid mics - `Samples/Piano-ConcertD` |
+| Clear Grand | Accurate-Salamander V6.2e - `Samples/Piano-Clear` |
+| Session Grand | Headroom Piano (Yamaha C3), close + Decca mics - `Samples/Piano-StudioC3` |
 
 ## Build
 Requires VS 2022 Build Tools (C++), CMake 3.22+, ffmpeg and Git Bash.
 
 ```
 bash Tools/prepare_samples.sh                 # downloads Salamander (~400 MB) -> Samples/ (42 MB FLAC)
+python Tools/prepare_pianos.py                # the other pianos, from their libraries in _download/ -> Samples/Piano-*/
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Release
 ./install.ps1                                 # samples -> ProgramData, VST3 -> Common Files\VST3 (UAC prompt)
@@ -46,4 +62,8 @@ build/WKRender_artefacts/Release/WKRender.exe --ui shots # editor screenshots + 
 The plugin looks for samples in `C:\ProgramData\WorshipKeys\Samples`, then in a `Samples` folder next to the plugin, then in this repo's `Samples/` folder. It uses about 250 MB of RAM, shared across all instances.
 
 ## Credits
-Piano samples: **Salamander Grand Piano V3** by Alexander Holm, [CC-BY 3.0](http://creativecommons.org/licenses/by/3.0/). Retuning by Markus Fiedler. If you distribute the plugin, keep this credit (it is also in `Samples/CREDITS.txt`).
+Piano samples (if you distribute the plugin, keep these credits; each is also in its folder's `CREDITS.txt`):
+- **Salamander Grand Piano V3** by Alexander Holm, [CC-BY 3.0](http://creativecommons.org/licenses/by/3.0/). Retuning by Markus Fiedler.
+- **bitKlavier Grand** (Steinway D, Lip Cardioid mic image), Princeton University: recorded by Andrés Villalta, played by Matt Wang, produced by Dan Trueman. [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), https://doi.org/10.34770/xm18-yr83
+- **Accurate-Salamander Grand Piano V6.2e** by Chisato Yamauchi, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+- **Headroom Piano** (Yamaha C3) by Bengt Nilsson, SFZ conversion by kinwie, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).

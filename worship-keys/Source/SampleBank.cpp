@@ -1,5 +1,6 @@
 #include "SampleBank.h"
 #include "AndroidAssets.h"
+#include <chrono>
 #include <map>
 
 bool SampleBank::loadFromFolder (const juce::File& folder, const std::atomic<bool>& shouldAbort, std::atomic<float>& progress)
@@ -17,6 +18,10 @@ bool SampleBank::loadFromFolder (const juce::File& folder, const std::atomic<boo
     for (auto& line : tuneLines)
         if (line.trim().isNotEmpty())
             tuning[line.upToFirstOccurrenceOf (" ", false, false).getIntValue()] = line.fromFirstOccurrenceOf (" ", false, false).getFloatValue();
+
+    // Optional "level.txt": dB to add on playback (pianos stored lower to keep headroom in 16-bit).
+    if (auto levelFile = folder.getChildFile ("level.txt"); levelFile.existsAsFile())
+        playbackGain = juce::Decibels::decibelsToGain (levelFile.loadFileAsString().trim().getFloatValue());
 
     int maxLayer = -1;
     for (int i = 0; i < files.size() && ! shouldAbort.load(); ++i)
@@ -109,8 +114,12 @@ juce::Array<juce::File> SharedSampleBank::getSearchFolders()
     return dirs;
 }
 
+const char* const SharedSampleBank::pianoNames[numPianos] = { "Classic Grand", "Concert Grand", "Clear Grand", "Session Grand" };
+const char* const SharedSampleBank::pianoFolders[numPianos] = { "", "Piano-ConcertD", "Piano-Clear", "Piano-StudioC3" };
+
 SharedSampleBank::SharedSampleBank()
 {
+    wanted[0] = true;
     setStatus ("Loading piano samples...");
     loader = std::thread ([this]
     {
@@ -118,26 +127,86 @@ SharedSampleBank::SharedSampleBank()
         unpackAndroidAssets ("WorshipKeys/Samples", [this] (const juce::String& s) { setStatus ("Piano: " + s); });
         setStatus ("Loading piano samples...");
        #endif
+        if (! loadPiano (0))
+        {
+            if (abort.load())
+                return;
+           #if JUCE_IOS || JUCE_ANDROID
+            setStatus ("Piano samples missing from the app - reinstall it");
+           #else
+            setStatus ("Piano samples not found - copy them to C:\\ProgramData\\WorshipKeys\\Samples");
+           #endif
+            return;
+        }
+        updateStatus();
+
+        // The other pianos load when a patch first asks for one.
+        while (! abort.load())
+        {
+            for (int p = 1; p < numPianos && ! abort.load(); ++p)
+                if (wanted[(size_t) p].load() && ! ready[(size_t) p].load() && ! failed[(size_t) p].load())
+                {
+                    setStatus ("Loading " + juce::String (pianoNames[p]) + "...");
+                    if (! loadPiano (p))
+                        failed[(size_t) p] = true;
+                    updateStatus();
+                }
+            std::this_thread::sleep_for (std::chrono::milliseconds (40));
+        }
+    });
+}
+
+bool SharedSampleBank::loadPiano (int piano)
+{
+    if (piano == 0)
+    {
         for (auto& dir : getSearchFolders())
         {
             if (! dir.isDirectory())
                 continue;
-            if (bank.loadFromFolder (dir, abort, progress))
+            if (banks[0].loadFromFolder (dir, abort, progress))
             {
-                setStatus ("Piano: " + juce::String (bank.getNumLayers()) + " velocity layers, "
-                           + juce::String (juce::roundToInt ((double) bank.getMemoryBytes() / (1024.0 * 1024.0))) + " MB");
-                ready.store (true, std::memory_order_release);
-                return;
+                sampleRoot = dir;
+                ready[0].store (true, std::memory_order_release);
+                return true;
             }
             if (abort.load())
-                return;
+                return false;
         }
-       #if JUCE_IOS || JUCE_ANDROID
-        setStatus ("Piano samples missing from the app - reinstall it");
-       #else
-        setStatus ("Piano samples not found - copy them to C:\\ProgramData\\WorshipKeys\\Samples");
-       #endif
-    });
+        return false;
+    }
+
+    // Next to the original grand first, then anywhere else the search looks.
+    juce::Array<juce::File> dirs { sampleRoot };
+    dirs.addArray (getSearchFolders());
+    for (auto& dir : dirs)
+    {
+        auto folder = dir.getChildFile (pianoFolders[piano]);
+        if (folder.isDirectory() && banks[(size_t) piano].loadFromFolder (folder, abort, progress))
+        {
+            ready[(size_t) piano].store (true, std::memory_order_release);
+            return true;
+        }
+        if (abort.load())
+            return false;
+    }
+    return false;
+}
+
+void SharedSampleBank::updateStatus()
+{
+    size_t bytes = 0;
+    juce::StringArray loaded;
+    for (int p = 0; p < numPianos; ++p)
+        if (ready[(size_t) p].load())
+        {
+            bytes += banks[(size_t) p].getMemoryBytes();
+            loaded.add (p == 0 ? juce::String (banks[0].getNumLayers()) + " velocity layers" : juce::String (pianoNames[p]));
+        }
+    for (int p = 1; p < numPianos; ++p)
+        if (failed[(size_t) p].load())
+            loaded.add (juce::String (pianoNames[p]) + " missing");
+    setStatus ("Piano: " + loaded.joinIntoString (" + ") + ", " + juce::String (juce::roundToInt ((double) bytes / (1024.0 * 1024.0))) + " MB");
 }
 
 SharedSampleBank::~SharedSampleBank()

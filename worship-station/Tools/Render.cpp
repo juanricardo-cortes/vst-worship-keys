@@ -112,6 +112,7 @@ int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI init;
     StationProcessor::persistSettings = false; // never touch the real controller setup
+    midilearn::Map::persist = false;            // ...or the Synth / Orchestra knob mappings
 
     auto root = juce::File::getCurrentWorkingDirectory();
     StationProcessor st;
@@ -260,6 +261,72 @@ int main (int argc, char** argv)
         check (r.packPeak[0] > 0.01f && r.packPeak[1] < 1e-4f && r.packPeak[2] < 1e-4f, "notes go to the selected pack only (Keys)");
     }
 
+    // MIDI learn on the Synth and Orchestra Easy pages: the same controller knob drives whichever pack is on screen.
+    {
+        auto& synth = dynamic_cast<synthpack::AnthemSynthProcessor&> (st.getPack (1));
+        auto value = [] (juce::AudioProcessor& p, const char* id)
+        {
+            auto& apvts = dynamic_cast<synthpack::AnthemSynthProcessor*> (&p) != nullptr ? dynamic_cast<synthpack::AnthemSynthProcessor&> (p).apvts
+                                                                                          : dynamic_cast<orch::OrchestraProcessor&> (p).apvts;
+            return apvts.getRawParameterValue (id)->load();
+        };
+        st.selectPack (1);
+        synth.midiLearn.startLearn ("revMix");
+        render (st, { { 0.0, cc (74, 10) } }, 0.05);
+        check (synth.midiLearn.getMappedCC ("revMix") == 74 && ! synth.midiLearn.isAnyLearning(), "Synth: reverb knob learned CC 74");
+        render (st, { { 0.0, cc (74, 127) } }, 0.05);
+        check (std::abs (value (synth, "revMix") - 1.0f) < 1e-3f, "Synth: CC 74 = 127 -> reverb 100%");
+        render (st, { { 0.0, cc (74, 0) } }, 0.05);
+        check (value (synth, "revMix") < 1e-3f, "Synth: CC 74 = 0 -> reverb 0%");
+        render (st, { { 0.0, cc (1, 100) }, { 0.0, cc (64, 127) }, { 0.01, cc (64, 0) }, { 0.02, cc (1, 0) } }, 0.05);
+        check (synth.midiLearn.getMappedCC ("revMix") == 74, "Synth: mod wheel + pedal don't disturb the mapping");
+
+        st.selectPack (2);
+        orchestra.midiLearn.startLearn ("strings");
+        render (st, { { 0.0, cc (74, 5) } }, 0.05);
+        check (orchestra.midiLearn.getMappedCC ("strings") == 74, "Orchestra: strings fader learned the same CC 74");
+        render (st, { { 0.0, cc (74, 0) } }, 0.05);
+        check (value (orchestra, "strings") <= -59.9f, "Orchestra: CC 74 = 0 -> strings OFF");
+        render (st, { { 0.0, cc (74, 127) } }, 0.05);
+        check (value (orchestra, "strings") > 5.9f && value (synth, "revMix") < 1e-3f, "Orchestra: CC 74 moves only the pack on screen");
+
+        orchestra.midiLearn.startLearn ("revMix");   // relearning a CC takes it from the old fader
+        render (st, { { 0.0, cc (74, 64) } }, 0.05);
+        check (orchestra.midiLearn.getMappedCC ("revMix") == 74 && orchestra.midiLearn.getMappedCC ("strings") < 0, "Orchestra: one CC -> one fader");
+
+        synth.midiLearn.clearAll();
+        orchestra.midiLearn.clearAll();
+        orchestra.setCurrentProgram (0);
+        synth.setCurrentProgram (0);
+        st.selectPack (0);
+    }
+
+    // Keys: the octave-down layer adds the C2 string under a played C3 (measured dry, so the compressor can't hide it).
+    {
+        for (int i = 0; i < keys.getNumPrograms(); ++i)
+            if (keys.getProgramName (i) == "Huge Grand + Pad") keys.setCurrentProgram (i);
+        auto set = [&] (const char* id, float v) { if (auto* p = keys.apvts.getParameter (id)) p->setValueNotifyingHost (p->convertTo0to1 (v)); };
+        for (auto id : { "comp", "drive", "chorusMix", "delayMix", "revMix", "shimmer" }) set (id, 0.0f);
+        set ("padLevel", -60.0f); // piano only
+        auto bandAt65 = [&]
+        {
+            wait (st, 4.0);
+            auto r = render (st, { { 0.0, on (48, 100) }, { 1.0, off (48) } }, 1.0);
+            juce::IIRFilter a, b;   // narrow band around 65 Hz (C2), an octave below C3's 131 Hz fundamental
+            a.setCoefficients (juce::IIRCoefficients::makeBandPass (rate, 65.4, 4.0));
+            b.setCoefficients (juce::IIRCoefficients::makeBandPass (rate, 65.4, 4.0));
+            double e = 0;
+            for (int i = 0; i < r.audio.getNumSamples(); ++i) { auto x = b.processSingleSampleRaw (a.processSingleSampleRaw (r.audio.getSample (0, i))); e += x * x; }
+            return 10.0 * std::log10 (e + 1e-12);
+        };
+        set ("pianoLow", 0.0f);
+        auto plain = bandAt65();
+        set ("pianoLow", 0.5f);
+        auto layered = bandAt65();
+        check (layered > plain + 6.0, "Keys: Low Octave adds the octave-down string (+" + juce::String (layered - plain, 1) + " dB at 65 Hz)");
+        keys.setCurrentProgram (0);
+    }
+
     // Out of the box (KeyLab Essential mk3): wheel CC 114 sends 64 then 65 / 63 per click = patches,
     // arrow buttons CC 25 / 26 = packs.
     st.selectPack (1);
@@ -319,7 +386,7 @@ int main (int argc, char** argv)
     {
         auto r = render (st, { { 0.0, on (36, 90, 10) }, { 0.1, off (36, 10) } }, 0.5);
         check (st.getSelectedPack() == 1, "pad press -> next pack");
-        check (r.packPeak[0] < 1e-4f && r.packPeak[1] < 1e-4f, "the pad note itself is silent");
+        check (r.packPeak[0] < 1e-4f && r.packPeak[1] < 1e-4f, "the pad note itself is silent (" + juce::String (db (r.packPeak[0]), 1) + " / " + juce::String (db (r.packPeak[1]), 1) + " dB)");
     }
 
     // Program change straight to a pack.
@@ -379,7 +446,7 @@ int main (int argc, char** argv)
     st.setPackDevice (2, third);
     for (int p = 0; p < StationProcessor::numPacks; ++p) st.getPack (p).setCurrentProgram (0);
     st.selectPack (1);   // Synth on screen
-    wait (st, 5.0);
+    wait (st, 8.0);      // the Synth's long shimmer tails from the tests above must die away
     auto fromDevice = [&] (const juce::String& dev, std::vector<juce::MidiMessage> msgs, double seconds)
     {
         for (auto& m : msgs) st.injectDeviceMidi (dev, m);
@@ -388,7 +455,7 @@ int main (int argc, char** argv)
     {
         auto r = fromDevice (keylab, { on (60, 100) }, 0.5);
         fromDevice (keylab, { off (60) }, 0.1);
-        check (r.packPeak[0] > 0.01f && r.packPeak[1] < 1e-4f && r.packPeak[2] < 1e-4f, "KeyLab plays only Keys");
+        check (r.packPeak[0] > 0.01f && r.packPeak[1] < 1e-4f && r.packPeak[2] < 1e-4f, "KeyLab plays only Keys (" + juce::String (db (r.packPeak[0]), 1) + " / " + juce::String (db (r.packPeak[1]), 1) + " / " + juce::String (db (r.packPeak[2]), 1) + " dB)");
         wait (st, 5.0);
         r = fromDevice (other, { on (64, 100) }, 0.5);
         fromDevice (other, { off (64) }, 0.1);

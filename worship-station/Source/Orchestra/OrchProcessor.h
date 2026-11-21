@@ -41,6 +41,7 @@ public:
     float takeOutputPeak() { return outPeak.exchange (0.0f); }
 
     juce::AudioProcessorValueTreeState apvts;
+    midilearn::Map midiLearn { apvts, "PraiseOrchestra" }; // faders <-> controller CCs, shared by every project
     juce::MidiKeyboardState keyboardState;
     bool easyView = true; // which editor page is showing, saved with the project
 

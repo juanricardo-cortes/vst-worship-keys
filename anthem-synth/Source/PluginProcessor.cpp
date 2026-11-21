@@ -213,16 +213,20 @@ void AnthemSynthProcessor::handleMidi (const juce::MidiMessage& m, const syn::Pa
         engine.setSustain (m.isSustainPedalOn());
         arp.setSustain (m.isSustainPedalOn());
     }
-    else if (m.isController() && m.getControllerNumber() == 1)
-        engine.setModWheel (m.getControllerValue() / 127.0f);
-    else if (m.isPitchWheel())
-        engine.setPitchBend ((float) (m.getPitchWheelValue() - 8192) / 8192.0f);
     else if (m.isAllNotesOff() || m.isAllSoundOff())
     {
         keysDown = 0;
         engine.allNotesOff();
         arp.reset();
     }
+    else if (m.isController())
+    {
+        if (m.getControllerNumber() == 1)
+            engine.setModWheel (m.getControllerValue() / 127.0f);
+        midiLearn.handleCC (m.getControllerNumber(), m.getControllerValue());
+    }
+    else if (m.isPitchWheel())
+        engine.setPitchBend ((float) (m.getPitchWheelValue() - 8192) / 8192.0f);
 }
 
 void AnthemSynthProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)

@@ -41,6 +41,8 @@ public:
 
     juce::String getSampleStatus() const { return sharedBank->getStatus(); }
     bool samplesReady() const { return sharedBank->get() != nullptr; }
+    bool pianoLoaded (int piano) const { return sharedBank->isLoaded (piano); }
+    void requestPiano (int piano) { sharedBank->request (piano); }
     float getGainReductionDb() const { return grDb.load(); }
 
     // MIDI learn: a CC moves one parameter. Mappings are global (saved to a file), not per project.
@@ -78,6 +80,7 @@ private:
     juce::SmoothedValue<float> pianoGain, epGain, padGain, bellGain;
     double sr = 44100.0, lfoPhase = 0.0, tremPhase = 0.0, tremInc = 0.0;
     float tremDepth = 0.0f;
+    int pianoModel = 0, stackModel = -1;   // resolved each block: only pianos that have loaded
     std::atomic<float> grDb { 0.0f };
     int currentProgram = 0;
     std::array<std::atomic<int>, 128> ccMap;   // CC number -> parameter index, -1 = unmapped

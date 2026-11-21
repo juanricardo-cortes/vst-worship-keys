@@ -19,6 +19,8 @@ struct EngineParams
     float velCurve = 1.0f;     // exponent applied to velocity
     float pianoRelease = 0.4f; // damper release, s
     float pianoTone = 0.55f;   // 0 = dark felt, 1 = open (filter bypassed)
+    float pianoLow = 0.0f;     // level of a second piano voice an octave below each key (0 = off)
+    float stackLevel = 0.0f;   // level of the stacked second piano (its own samples), 0 = off
     float epBell = 0.5f;       // tine "ping"
     float epBark = 0.4f;       // velocity growl
     float epDecay = 1.0f;      // decay length multiplier
@@ -49,8 +51,10 @@ struct PianoVoice : VoiceBase
     float lp1[2] {}, lp2[2] {};    // two cascaded one-poles (12 dB/oct)
     bool releasing = false;
 
-    void start (const SampleBank& bank, int n, float vc, double sr)
+    // key = the key played (what note-offs match); shift = semitones the voice sounds away from it.
+    void start (const SampleBank& bank, int key, float vc, double sr, int shift = 0, float level = 1.0f)
     {
+        auto n = key + shift;
         auto layers = bank.getNumLayers();
         auto layerF = vc * (float) (layers - 1);
         auto lo = juce::jlimit (0, layers - 1, (int) layerF);
@@ -71,11 +75,11 @@ struct PianoVoice : VoiceBase
         pos = 0;
         env = 1.0f;
         releasing = false;
-        gain = 0.6f + 0.4f * vc; // layers already carry the dynamics; this just widens them a little
+        gain = (0.6f + 0.4f * vc) * level * bank.getPlaybackGain(); // layers already carry the dynamics; this just widens them a little
         // Like a stage piano's "dynamic" timbre: soft playing is darker, hard playing opens up, treble keys stay clear.
         toneScale = std::pow (2.0f, (vc - 0.6f) * 2.0f + (float) (n - 60) / 36.0f);
         lp1[0] = lp1[1] = lp2[0] = lp2[1] = 0.0f;
-        note = n;
+        note = key;
         active = true;
     }
 
@@ -416,7 +420,8 @@ public:
         allNotesOff();
     }
 
-    void noteOn (const SampleBank* bank, int note, float velocity, const EngineParams& p)
+    // bank = the piano's samples; stackBank (optional) = a second piano played on top of it.
+    void noteOn (const SampleBank* bank, int note, float velocity, const EngineParams& p, const SampleBank* stackBank = nullptr)
     {
         auto vc = std::pow (juce::jlimit (0.0f, 1.0f, velocity), p.velCurve);
         ++clock;
@@ -428,6 +433,20 @@ public:
             auto& v = allocate (piano);
             v.start (*bank, note, vc, sr);
             mark (v);
+            // Octave-down layer: the second string that makes a stage piano sound huge (A0 is the lowest sample).
+            if (p.pianoLow > 0.001f && note - 12 >= 21)
+            {
+                auto& low = allocate (piano);
+                low.start (*bank, note, vc, sr, -12, p.pianoLow);
+                mark (low);
+            }
+            // A second, different piano on top: two instruments' tone and attack at once.
+            if (stackBank != nullptr && p.stackLevel > 0.001f)
+            {
+                auto& st = allocate (piano);
+                st.start (*stackBank, note, vc, sr, 0, p.stackLevel);
+                mark (st);
+            }
         }
         if (p.epOn)
         {
@@ -526,7 +545,7 @@ private:
     uint32_t clock = 0;
     bool sustainDown = false;
     juce::Random rng { 1234 };
-    std::array<PianoVoice, 64> piano;
+    std::array<PianoVoice, 128> piano;   // room for the octave-down and stacked layers
     std::array<EPVoice, 32> ep;
     std::array<PadVoice, 16> pad;
     std::array<BellVoice, 32> bell;

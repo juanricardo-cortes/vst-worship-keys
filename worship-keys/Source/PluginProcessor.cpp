@@ -27,6 +27,14 @@ Range levelRange()
     return r;
 }
 
+juce::StringArray pianoChoices (bool withOff)
+{
+    juce::StringArray names;
+    if (withOff) names.add ("Off");
+    for (auto* n : SharedSampleBank::pianoNames) names.add (n);
+    return names;
+}
+
 // CCs that already mean something to a keyboard rig: never learn these.
 bool isLearnableCC (int cc) { return cc != 64 && cc != 66 && cc != 67 && cc < 120; }
 
@@ -49,6 +57,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout WorshipKeysProcessor::create
     // Layers
     add ("pianoLevel", "Piano Level", levelRange(), 0, "dB");
     add ("pianoTone", "Piano Tone", Range (0, 1), 0.45f);
+    add ("pianoLow", "Piano Low Octave", Range (0, 1), 0.0f);
     add ("pianoRelease", "Piano Release", skewed (0.05f, 3.0f, 0.5f), 0.4f, "s");
     add ("velCurve", "Touch", Range (0.4f, 2.0f), 1.0f);
     add ("epLevel", "EP Level", levelRange(), -60, "dB");
@@ -93,6 +102,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout WorshipKeysProcessor::create
     add ("shimmer", "Shimmer", Range (0, 1), 0.0f);
     add ("master", "Master", Range (-24, 6, 0.1f), 0, "dB");
 
+    // Which sampled piano plays, and an optional second piano stacked on top.
+    p.push_back (std::make_unique<juce::AudioParameterChoice> (juce::ParameterID { "pianoModel", 1 }, "Piano", pianoChoices (false), 0));
+    p.push_back (std::make_unique<juce::AudioParameterChoice> (juce::ParameterID { "stackModel", 1 }, "Stack Piano", pianoChoices (true), 0));
+    add ("stackLevel", "Stack Level", Range (-30, 0, 0.1f), -6, "dB");
+
     return { p.begin(), p.end() };
 }
 
@@ -133,6 +147,14 @@ void WorshipKeysProcessor::readParams (EngineParams& e, fx::Params& f)
     e.velCurve = param ("velCurve");
     e.pianoRelease = param ("pianoRelease");
     e.pianoTone = param ("pianoTone");
+    e.pianoLow = param ("pianoLow");
+    auto model = juce::jlimit (0, SharedSampleBank::numPianos - 1, (int) std::lround (param ("pianoModel")));
+    auto stack = (int) std::lround (param ("stackModel")) - 1;
+    pianoModel = sharedBank->isLoaded (model) ? model : 0; // the original grand plays until the chosen one has loaded
+    stackModel = stack >= 0 && sharedBank->isLoaded (stack) ? stack : -1;
+    if (model > 0) sharedBank->request (model);
+    if (stack > 0) sharedBank->request (stack);
+    e.stackLevel = stackModel >= 0 ? juce::Decibels::decibelsToGain (param ("stackLevel")) : 0.0f; // pianos are level-matched in their samples
     e.epBell = param ("epBell");
     e.epBark = param ("epBark");
     e.epDecay = param ("epDecay");
@@ -187,7 +209,8 @@ void WorshipKeysProcessor::readParams (EngineParams& e, fx::Params& f)
 void WorshipKeysProcessor::handleMidi (const juce::MidiMessage& m, const SampleBank* bank, const EngineParams& e)
 {
     if (m.isNoteOn())
-        engine.noteOn (bank, m.getNoteNumber(), m.getFloatVelocity(), e);
+        engine.noteOn (sharedBank->get (pianoModel) != nullptr ? sharedBank->get (pianoModel) : bank, m.getNoteNumber(), m.getFloatVelocity(), e,
+                       stackModel >= 0 ? sharedBank->get (stackModel) : nullptr);
     else if (m.isNoteOff())
         engine.noteOff (m.getNoteNumber(), e);
     else if (m.isSustainPedalOn())

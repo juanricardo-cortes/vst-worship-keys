@@ -155,7 +155,11 @@ AnthemSynthEditor::AnthemSynthEditor (AnthemSynthProcessor& p)
     startTimerHz (30);
 }
 
-AnthemSynthEditor::~AnthemSynthEditor() { setLookAndFeel (nullptr); }
+AnthemSynthEditor::~AnthemSynthEditor()
+{
+    proc.midiLearn.cancelLearn();
+    setLookAndFeel (nullptr);
+}
 
 AnthemSynthEditor::Section* AnthemSynthEditor::addSection (const juce::String& title, juce::Colour accent, std::vector<Control*> items)
 {
@@ -177,7 +181,8 @@ std::unique_ptr<AnthemSynthEditor::Control> AnthemSynthEditor::makeKnob (const j
     c->paramId = id;
     c->label = label;
     auto* param = proc.apvts.getParameter (id);
-    c->slider = std::make_unique<juce::Slider> (juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow);
+    c->slider = std::make_unique<midilearn::Slider> (juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow);
+    c->slider->onRightClick = [this, id] { midilearn::showMenu (proc.midiLearn, proc.apvts, id, *this); };
     if (big)
         c->slider->getProperties().set ("big", true);
     parent.addAndMakeVisible (*c->slider);   // pick up the look-and-feel before the value box is built
@@ -214,6 +219,10 @@ void AnthemSynthEditor::addEasyKnob (const juce::String& id, const juce::String&
 {
     auto c = makeKnob (id, label, easyPage, true);
     c->slider->getProperties().set ("accent", (juce::int64) accent.getARGB());
+    c->learnButton = std::make_unique<juce::TextButton> ("LEARN");
+    c->learnButton->setTooltip ("Click, then turn a knob or move a slider on your MIDI controller");
+    c->learnButton->onClick = [this, id] { toggleLearn (id); };
+    easyPage.addAndMakeVisible (*c->learnButton);
     easyKnobs.push_back (std::move (c));
 }
 
@@ -241,6 +250,15 @@ void AnthemSynthEditor::setEasyView (bool easy)
     viewport.setVisible (! easy);
 }
 
+void AnthemSynthEditor::toggleLearn (const juce::String& paramId)
+{
+    if (proc.midiLearn.isLearning (paramId))
+        proc.midiLearn.cancelLearn();
+    else
+        proc.midiLearn.startLearn (paramId);
+    timerCallback();
+}
+
 void AnthemSynthEditor::stepPreset (int delta)
 {
     auto n = proc.getNumPrograms();
@@ -249,6 +267,24 @@ void AnthemSynthEditor::stepPreset (int delta)
 
 void AnthemSynthEditor::timerCallback()
 {
+    // MIDI learn: save a new mapping, and repaint the CC readouts when one changes (blinking while learning).
+    proc.midiLearn.saveIfChanged();
+    juce::StringArray easyIds;
+    for (auto& c : easyKnobs)
+    {
+        easyIds.add (c->paramId);
+        auto learning = proc.midiLearn.isLearning (c->paramId);
+        c->learnButton->setToggleState (learning, juce::dontSendNotification);
+        c->learnButton->setButtonText (learning ? "TURN A KNOB" : "LEARN");
+    }
+    auto sig = proc.midiLearn.signature (easyIds);
+    if (sig != shownMidi || proc.midiLearn.isAnyLearning())
+    {
+        shownMidi = sig;
+        ++blink;
+        easyPage.repaint();
+    }
+
     if (proc.getCurrentProgram() != shownProgram)
     {
         shownProgram = proc.getCurrentProgram();
@@ -379,6 +415,19 @@ void AnthemSynthEditor::paintEasyPage (juce::Graphics& g)
             bg.drawText (c->label, c->bounds.reduced (4, 6).removeFromTop (compact ? 18 : 24), juce::Justification::centred);
         }
     });
+
+    // CC readouts change at run time, so they're drawn over the cached plates.
+    auto learnOn = (blink / 8) % 2 == 0;
+    g.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)));
+    for (auto& c : easyKnobs)
+    {
+        auto learning = proc.midiLearn.isLearning (c->paramId);
+        auto mapped = proc.midiLearn.getMappedCC (c->paramId) >= 0;
+        auto accent = juce::Colour ((juce::uint32) (juce::int64) c->slider->getProperties()["accent"]);
+        g.setColour (learning ? (learnOn ? accent : colours::dim) : mapped ? accent.brighter (0.3f) : colours::dim);
+        g.drawText (midilearn::describe (proc.midiLearn, c->paramId), c->bounds.getX(), c->learnButton->getY() - 16,
+                    c->bounds.getWidth(), 14, juce::Justification::centred);
+    }
 }
 
 void AnthemSynthEditor::layoutRow (std::vector<Section*> row, juce::Rectangle<int> area)
@@ -427,7 +476,9 @@ void AnthemSynthEditor::layoutEasy()
 
         auto r = c.bounds.reduced (6);
         r.removeFromTop (compact ? 20 : 28);
-        r.removeFromBottom (compact ? 4 : 10);
+        auto buttonRow = r.removeFromBottom (compact ? 20 : 26);
+        c.learnButton->setBounds (buttonRow.withSizeKeepingCentre (juce::jmin (buttonRow.getWidth(), 120), buttonRow.getHeight()));
+        r.removeFromBottom (16); // CC readout
         auto size = juce::jmin (r.getWidth(), r.getHeight() - 22, 190);
         c.slider->setBounds (r.withSizeKeepingCentre (r.getWidth(), size + 22));
     }

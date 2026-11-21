@@ -2,6 +2,7 @@
 #include <juce_audio_utils/juce_audio_utils.h>
 #include "SynthEngine.h"
 #include "SynthFx.h"
+#include "../../worship-keys/Source/MidiLearn.h"
 #include <map>
 #include <string>
 #include <string_view>
@@ -47,6 +48,7 @@ public:
     void copyScope (float* dest) const;
 
     juce::AudioProcessorValueTreeState apvts;
+    midilearn::Map midiLearn { apvts, "AnthemSynth" }; // knobs <-> controller CCs, shared by every project
     juce::MidiKeyboardState keyboardState;
     bool easyView = true; // which editor page is showing, saved with the project
 

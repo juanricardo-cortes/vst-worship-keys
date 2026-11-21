@@ -128,6 +128,14 @@ int main (int argc, char** argv)
         proc.setCurrentProgram (prog);
         for (auto& [id, v] : overrides)
             proc.apvts.getParameter (id)->setValueNotifyingHost (proc.apvts.getParameter (id)->convertTo0to1 (v));
+        // The extra pianos load on first use: wait for the ones this preset plays.
+        for (auto* id : { "pianoModel", "stackModel" })
+        {
+            auto piano = (int) proc.apvts.getRawParameterValue (id)->load() - (juce::String (id) == "stackModel" ? 1 : 0);
+            if (piano <= 0) continue;
+            proc.requestPiano (piano);
+            for (int i = 0; i < 1200 && ! proc.pianoLoaded (piano); ++i) juce::Thread::sleep (100);
+        }
         proc.prepareToPlay (sr, block); // reset voices & fx between presets
 
         juce::MidiBuffer events;
@@ -218,6 +226,29 @@ int main (int argc, char** argv)
             std::unique_ptr<juce::AudioFormatWriter> w (writer);
             w->writeFromAudioSampleBuffer (out, 0, totalSamples);
         }
+    }
+
+    // Every piano through the same dry patch: they must load, and play at about the same level.
+    {
+        float classicDb = 0;
+        int dryPatch = 0;
+        for (int i = 0; i < proc.getNumPrograms(); ++i)
+            if (proc.getProgramName (i) == "Piano Only - Warm Room") dryPatch = i;
+        for (int piano = 0; piano < SharedSampleBank::numPianos; ++piano)
+        {
+            bool bad = false;
+            auto out = render (dryPatch, { { "pianoModel", (float) piano }, { "comp", 0.0f } }, bad);
+            auto playLen = (int) (barSec * (double) chords.size() * sr);
+            auto db = juce::Decibels::gainToDecibels (out.getRMSLevel (0, 0, playLen), -100.0f);
+            if (piano == 0) classicDb = db;
+            auto ok = proc.pianoLoaded (piano) && ! bad && std::abs (db - classicDb) < 3.0f;
+            std::cout << "Piano " << juce::String (SharedSampleBank::pianoNames[piano]).paddedRight (' ', 16)
+                      << (proc.pianoLoaded (piano) ? "" : "NOT LOADED  ") << "rms " << juce::String (db, 1) << " dBFS  ("
+                      << juce::String (db - classicDb, 1) << " dB vs Classic)  bright " << juce::String (brightnessDb (out), 1) << " dB"
+                      << (ok ? "" : "  FAIL") << "\n";
+            allOk = allOk && ok;
+        }
+        std::cout << proc.getSampleStatus() << "\n";
     }
 
     // Stress: every feedback path maxed out. The tail must decay, not grow.

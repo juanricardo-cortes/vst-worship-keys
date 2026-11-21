@@ -1,0 +1,4 @@
+Session Grand: Headroom Piano (Yamaha C3) by Bengt Nilsson, SFZ conversion by kinwie.
+License: Creative Commons Attribution 4.0 (https://creativecommons.org/licenses/by/4.0/)
+Source: https://github.com/sfzinstruments/BengtNilsson.HeadroomPiano
+Trimmed to 5 velocity layers, faded at 12 s, level-matched and converted to FLAC for Worship Keys.

@@ -188,10 +188,14 @@ void OrchestraProcessor::handleMidi (const juce::MidiMessage& m, const Params& e
         engine.allNotesOff();
     else if (m.isPitchWheel())
         bend = std::pow (2.0f, 2.0f * (float) (m.getPitchWheelValue() - 8192) / 8192.0f / 12.0f);
-    else if (m.isControllerOfType (1))
-        modWheel = (float) m.getControllerValue() / 127.0f;    // swells the sustains, like an orchestral library's dynamics
-    else if (m.isControllerOfType (11))
-        expression = (float) m.getControllerValue() / 127.0f;
+    else if (m.isController())
+    {
+        if (m.isControllerOfType (1))
+            modWheel = (float) m.getControllerValue() / 127.0f;    // swells the sustains, like an orchestral library's dynamics
+        else if (m.isControllerOfType (11))
+            expression = (float) m.getControllerValue() / 127.0f;
+        midiLearn.handleCC (m.getControllerNumber(), m.getControllerValue());
+    }
 }
 
 void OrchestraProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)

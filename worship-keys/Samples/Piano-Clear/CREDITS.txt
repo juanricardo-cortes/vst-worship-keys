@@ -1,0 +1,5 @@
+Clear Grand: Accurate-Salamander Grand Piano V6.2e by Chisato Yamauchi,
+based on the Salamander Grand Piano by Alexander Holm.
+License: Creative Commons Attribution 4.0 (https://creativecommons.org/licenses/by/4.0/)
+Source: https://www.ir.isas.jaxa.jp/~cyamauch/AccurateSalamander/
+Trimmed to 5 velocity layers, faded at 12 s, level-matched and converted to FLAC for Worship Keys.

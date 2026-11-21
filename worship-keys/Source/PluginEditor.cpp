@@ -94,7 +94,9 @@ WorshipKeysEditor::WorshipKeysEditor (WorshipKeysProcessor& p)
         return sections.back().get();
     };
 
-    auto* piano = section ("PIANO", { addKnob ("pianoLevel", "Level"), addKnob ("pianoTone", "Tone"), addKnob ("pianoRelease", "Release"),
+    juce::StringArray pianos, stackPianos { "Off" };
+    for (auto* n : SharedSampleBank::pianoNames) { pianos.add (juce::String (n).toUpperCase()); stackPianos.add (juce::String (n).toUpperCase()); }
+    auto* piano = section ("PIANO", { addChoice ("pianoModel", "Piano", pianos, 1), addKnob ("pianoLevel", "Level"), addKnob ("pianoTone", "Tone"), addKnob ("pianoLow", "Low Oct"), addKnob ("pianoRelease", "Release"),
                                       addKnob ("velCurve", "Touch") });
     auto* ep = section ("E.PIANO", { addKnob ("epLevel", "Level"), addKnob ("epBell", "Bell"), addKnob ("epBark", "Bark"), addKnob ("epDecay", "Decay"),
                                      addKnob ("epTrem", "Tremolo"), addKnob ("epTremRate", "Rate") });
@@ -111,9 +113,10 @@ WorshipKeysEditor::WorshipKeysEditor (WorshipKeysProcessor& p)
                                      addKnob ("revPreDelay", "Pre-Delay"), addKnob ("revTone", "Tone"), addKnob ("shimmer", "Shimmer") });
     auto* bells = section ("BELLS", { addKnob ("bellLevel", "Level"), addKnob ("bellTone", "Tone"), addKnob ("bellDecay", "Decay"),
                                       addChoice ("bellOctave", "Octave", { "0", "+1", "+2" }, 1) });
+    auto* stack = section ("STACK", { addChoice ("stackModel", "Piano", stackPianos, 1), addKnob ("stackLevel", "Level") });
     auto* out = section ("OUTPUT", { addKnob ("master", "Master") });
-    wideRows = { { piano, ep, pad }, { eq, dyn, mod }, { bells, rev, out } };
-    compactRows = { { piano, ep }, { pad }, { eq, dyn }, { mod }, { bells, out }, { rev } };
+    wideRows = { { piano, ep, pad }, { eq, dyn, mod }, { bells, stack, rev, out } };
+    compactRows = { { piano }, { ep }, { pad }, { eq, dyn }, { mod }, { bells, stack, out }, { rev } };
 
     // The Easy page: the handful of things you reach for mid-song.
     addFader ("pianoLevel", "PIANO");
@@ -419,7 +422,7 @@ void WorshipKeysEditor::layoutRow (std::vector<Section*> row, juce::Rectangle<in
             if (c->slider != nullptr)
                 c->slider->setBounds (r.withSizeKeepingCentre (juce::jmin (r.getWidth(), 76), r.getHeight()));
             else
-                c->combo->setBounds (r.withSizeKeepingCentre (juce::jmin (r.getWidth() - 4, 90), 26));
+                c->combo->setBounds (r.withSizeKeepingCentre (juce::jmin (r.getWidth() - 4, 150), 26));
         }
     }
 }

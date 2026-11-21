@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <functional>
@@ -25,6 +26,7 @@
 #include <vector>
 #include "../../worship-keys/Source/HardwareLook.h"
 #include "../../worship-keys/Source/AndroidAssets.h"
+#include "../../worship-keys/Source/MidiLearn.h"
 
 namespace keyspack
 {

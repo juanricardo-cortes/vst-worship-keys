@@ -28,22 +28,37 @@ public:
     // Nearest-root zone for a note at a layer; never null once loaded.
     const SampleZone* find (int note, int layer) const noexcept { return map[(size_t) juce::jlimit (0, 127, note)][(size_t) juce::jlimit (0, numLayers - 1, layer)]; }
     int getNumLayers() const noexcept { return numLayers; }
+    float getPlaybackGain() const noexcept { return playbackGain; } // from level.txt: makes up level the files store lower
     size_t getMemoryBytes() const noexcept;
 
 private:
     std::vector<std::unique_ptr<SampleZone>> zones;
     std::array<std::array<const SampleZone*, maxLayers>, 128> map {};
     int numLayers = 0;
+    float playbackGain = 1.0f;
 };
 
-// Loaded once per process and shared by every plugin instance (via juce::SharedResourcePointer).
+// The pianos, loaded once per process and shared by every plugin instance (via juce::SharedResourcePointer).
+// Piano 0 (the original grand) sits in Samples/ itself and loads at startup. The others live in Samples/<folder>/
+// and load in the background the first time a patch asks for them, so they only cost RAM when used.
 class SharedSampleBank
 {
 public:
+    static constexpr int numPianos = 4;
+    static const char* const pianoNames[numPianos];
+    static const char* const pianoFolders[numPianos]; // "" = Samples/ itself
+
     SharedSampleBank();
     ~SharedSampleBank();
 
-    const SampleBank* get() const noexcept { return ready.load (std::memory_order_acquire) ? &bank : nullptr; }
+    // Null until that piano has loaded. request() is safe to call from the audio thread.
+    const SampleBank* get (int piano = 0) const noexcept
+    {
+        piano = juce::jlimit (0, numPianos - 1, piano);
+        return ready[(size_t) piano].load (std::memory_order_acquire) ? &banks[(size_t) piano] : nullptr;
+    }
+    void request (int piano) noexcept { wanted[(size_t) juce::jlimit (0, numPianos - 1, piano)].store (true); }
+    bool isLoaded (int piano) const noexcept { return get (piano) != nullptr; }
     juce::String getStatus() const;
     float getProgress() const noexcept { return progress.load(); }
 
@@ -51,10 +66,14 @@ public:
 
 private:
     void setStatus (const juce::String&);
+    bool loadPiano (int piano);
+    void updateStatus();
 
-    SampleBank bank;
-    std::atomic<bool> ready { false }, abort { false };
+    std::array<SampleBank, numPianos> banks;
+    std::array<std::atomic<bool>, numPianos> ready {}, wanted {}, failed {};
+    std::atomic<bool> abort { false };
     std::atomic<float> progress { 0.0f };
+    juce::File sampleRoot; // the Samples/ folder piano 0 came from
     mutable std::mutex statusLock;
     juce::String status;
     std::thread loader;

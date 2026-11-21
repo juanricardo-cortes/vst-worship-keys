@@ -27,8 +27,9 @@ private:
     struct Control
     {
         juce::String paramId, label;
-        std::unique_ptr<juce::Slider> slider;
+        std::unique_ptr<midilearn::Slider> slider;
         std::unique_ptr<juce::ComboBox> combo;
+        std::unique_ptr<juce::TextButton> learnButton; // Easy page knobs only
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> sliderAttachment;
         std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> comboAttachment;
         juce::Rectangle<int> bounds;
@@ -54,6 +55,7 @@ private:
     void paintEasyPage (juce::Graphics&);
     void setEasyView (bool easy);
     void stepPreset (int delta);
+    void toggleLearn (const juce::String& paramId);
 
     AnthemSynthProcessor& proc;
     AnthemLookAndFeel lnf;
@@ -72,7 +74,8 @@ private:
     juce::Rectangle<int> titleArea, scopeArea;
     std::array<float, AnthemSynthProcessor::scopeSize> scopeData {};
     float meterLevel = -60;
-    int shownProgram = -1;
+    int shownProgram = -1, blink = 0;
+    juce::String shownMidi;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AnthemSynthEditor)
 };

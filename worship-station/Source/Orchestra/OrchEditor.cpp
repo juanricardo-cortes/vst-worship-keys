@@ -98,7 +98,14 @@ OrchestraEditor::OrchestraEditor (OrchestraProcessor& p)
     // The Easy page: section levels, swell, hall and master on big faders.
     for (auto [id, label] : { std::pair { "strings", "STRINGS" }, { "brass", "BRASS" }, { "lowEnd", "LOW END" }, { "timpani", "TIMPANI" },
                               { "hits", "CYMBALS" }, { "susAttack", "SWELL" }, { "revMix", "HALL" }, { "master", "MASTER" } })
-        easyFaders.push_back (&addSlider (id, label, true, easyPage));
+    {
+        auto& c = addSlider (id, label, true, easyPage);
+        c.learnButton = std::make_unique<juce::TextButton> ("LEARN");
+        c.learnButton->setTooltip ("Click, then move a slider or knob on your MIDI controller");
+        c.learnButton->onClick = [this, pid = c.paramId] { toggleLearn (pid); };
+        easyPage.addAndMakeVisible (*c.learnButton);
+        easyFaders.push_back (&c);
+    }
 
     static const char* articNames[] = { "STABS", "SUSTAIN", "STAB + HOLD", "MARCATO" };
     for (int i = 0; i < 4; ++i)
@@ -150,6 +157,7 @@ OrchestraEditor::OrchestraEditor (OrchestraProcessor& p)
 
 OrchestraEditor::~OrchestraEditor()
 {
+    proc.midiLearn.cancelLearn();
     setLookAndFeel (nullptr);
 }
 
@@ -158,8 +166,9 @@ OrchestraEditor::Control& OrchestraEditor::addSlider (const juce::String& id, co
     auto c = std::make_unique<Control>();
     c->paramId = id;
     c->label = label;
-    c->slider = std::make_unique<juce::Slider> (fader ? juce::Slider::LinearVertical : juce::Slider::RotaryHorizontalVerticalDrag,
-                                                juce::Slider::TextBoxBelow);
+    c->slider = std::make_unique<midilearn::Slider> (fader ? juce::Slider::LinearVertical : juce::Slider::RotaryHorizontalVerticalDrag,
+                                                     juce::Slider::TextBoxBelow);
+    c->slider->onRightClick = [this, id] { midilearn::showMenu (proc.midiLearn, proc.apvts, id, *this); };
     parent.addAndMakeVisible (*c->slider);   // pick up our look-and-feel before the value box is built
     c->slider->setTextBoxStyle (juce::Slider::TextBoxBelow, false, 80, 16);
     c->slider->setRotaryParameters (juce::MathConstants<float>::pi * 1.25f, juce::MathConstants<float>::pi * 2.75f, true);
@@ -205,8 +214,35 @@ void OrchestraEditor::setEasyView (bool easy)
     viewport.setVisible (! easy);
 }
 
+void OrchestraEditor::toggleLearn (const juce::String& paramId)
+{
+    if (proc.midiLearn.isLearning (paramId))
+        proc.midiLearn.cancelLearn();
+    else
+        proc.midiLearn.startLearn (paramId);
+    timerCallback();
+}
+
 void OrchestraEditor::timerCallback()
 {
+    // MIDI learn: save a new mapping, and repaint the CC readouts when one changes (blinking while learning).
+    proc.midiLearn.saveIfChanged();
+    juce::StringArray easyIds;
+    for (auto* c : easyFaders)
+    {
+        easyIds.add (c->paramId);
+        auto learning = proc.midiLearn.isLearning (c->paramId);
+        c->learnButton->setToggleState (learning, juce::dontSendNotification);
+        c->learnButton->setButtonText (learning ? "MOVE SLIDER" : "LEARN");
+    }
+    auto sig = proc.midiLearn.signature (easyIds);
+    if (sig != shownMidi || proc.midiLearn.isAnyLearning())
+    {
+        shownMidi = sig;
+        ++blink;
+        easyPage.repaint();
+    }
+
     if (proc.getCurrentProgram() != shownProgram)
     {
         shownProgram = proc.getCurrentProgram();
@@ -303,6 +339,19 @@ void OrchestraEditor::paintEasyPage (juce::Graphics& g)
             bg.drawText (c->label, cell.reduced (2, 4).removeFromTop (compact ? 18 : 26), juce::Justification::centred);
         }
     });
+
+    // CC readouts change at run time, so they're drawn over the cached plates.
+    auto learnOn = (blink / 4) % 2 == 0;
+    g.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)));
+    for (auto* c : easyFaders)
+    {
+        auto learning = proc.midiLearn.isLearning (c->paramId);
+        auto mapped = proc.midiLearn.getMappedCC (c->paramId) >= 0;
+        g.setColour (learning ? (learnOn ? colours::gold : colours::dim) : mapped ? colours::gold.brighter (0.3f) : colours::dim);
+        auto b = c->learnButton->getBounds();
+        g.drawText (midilearn::describe (proc.midiLearn, c->paramId), b.getX() - 10, b.getY() - 16, b.getWidth() + 20, 14,
+                    juce::Justification::centred);
+    }
 }
 
 void OrchestraEditor::placeRow (std::vector<Control*>& row, juce::Rectangle<int> area, int labelH)
@@ -403,6 +452,9 @@ void OrchestraEditor::layoutEasyPage()
         area.removeFromLeft (gap);
         cell.removeFromTop (compact ? 20 : 30);
         cell.removeFromBottom (6);
+        auto buttonRow = cell.removeFromBottom (compact ? 20 : 24);
+        c->learnButton->setBounds (buttonRow.withSizeKeepingCentre (juce::jmin (buttonRow.getWidth(), 110), buttonRow.getHeight()));
+        cell.removeFromBottom (16); // CC readout
         c->slider->setTextBoxStyle (juce::Slider::TextBoxBelow, false, juce::jmin (80, cell.getWidth()), compact ? 16 : 20);
         c->slider->setBounds (cell);
     }

@@ -1,0 +1,5 @@
+Concert Grand: the bitKlavier Grand (Steinway D), Lip Cardioid mic image.
+Recorded by Andres Villalta, played by Matt Wang, produced by Dan Trueman, Princeton University.
+License: Creative Commons Attribution 4.0 (https://creativecommons.org/licenses/by/4.0/)
+Source: https://doi.org/10.34770/xm18-yr83
+Trimmed to 5 velocity layers, faded at 12 s, level-matched and converted to FLAC for Worship Keys.

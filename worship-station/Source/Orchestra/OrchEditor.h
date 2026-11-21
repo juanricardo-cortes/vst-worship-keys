@@ -35,8 +35,9 @@ private:
     struct Control
     {
         juce::String paramId, label;
-        std::unique_ptr<juce::Slider> slider;
+        std::unique_ptr<midilearn::Slider> slider;
         std::unique_ptr<juce::ComboBox> combo;
+        std::unique_ptr<juce::TextButton> learnButton; // Easy page faders only
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> sliderAttachment;
         std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> comboAttachment;
     };
@@ -47,6 +48,7 @@ private:
     void stepPreset (int delta);
     void setArtic (int index);
     void setEasyView (bool easy);
+    void toggleLearn (const juce::String& paramId);
     void placeRow (std::vector<Control*>& row, juce::Rectangle<int> area, int labelH);
     void layoutFullPage (juce::Rectangle<int> area);
     void layoutEasyPage();
@@ -68,7 +70,8 @@ private:
     juce::Label statusLabel;
     hw::Keyboard keyboard;
     hw::CachedBackground background, fullBackground, easyBackground;
-    int shownProgram = -1, shownArtic = -1;
+    int shownProgram = -1, shownArtic = -1, blink = 0;
+    juce::String shownMidi;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (OrchestraEditor)
 };
