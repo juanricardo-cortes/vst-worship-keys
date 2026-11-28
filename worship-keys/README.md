@@ -20,6 +20,14 @@ Voiced darker than the raw samples. Pad and piano levels are comparable, so a Pa
 | Big Room Grand | A little brighter and wider, more reverb, dotted-1/8 delay, a touch of shimmer |
 | Felt Night Piano | Very dark, soft touch, long reverb |
 | Soft Prayer Keys | Dark piano, slow-swelling pad, long reverb |
+| Soft Prayer - Wide Chorus | Soft Prayer Keys with heavy slow chorus and a wide stereo image |
+| Soft Prayer - Huge Chorus Wall | Maximum chorus and width, octave-below string, louder pad, second hall |
+| Soft Prayer - Deep | Adds the octave-below string and low body for weight |
+| Soft Prayer - Cathedral | Long second hall and more shimmer |
+| Soft Prayer - Close | Less reverb and delay, for talking or praying over the keys |
+| Soft Prayer - Pad Forward | Pad up front, piano just under it |
+| Soft Prayer - Octave Halo | Pad an octave up, more shimmer |
+| Soft Prayer - EP Blend | A soft tine EP layered under the piano |
 | Octave Halo (pad under) | Pad an octave up, quiet, shimmery |
 | Modern Pop Grand | The brightest grand: more compression and presence |
 | Upbeat Bell Grand | For upbeat songs: brighter grand, glassy bells an octave up, bright fast pad under it, dotted-1/8 delay |

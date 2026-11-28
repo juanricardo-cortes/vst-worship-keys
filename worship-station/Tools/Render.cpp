@@ -134,6 +134,11 @@ int main (int argc, char** argv)
     {
         juce::File dir (argv[2]);
         dir.createDirectory();
+        // Show the patch bar in use: a favorite Soft Prayer patch, transposed +2 by pad 3.
+        for (int i = 0; i < keys.getNumPrograms(); ++i)
+            if (keys.getProgramName (i) == "Soft Prayer - Wide Chorus") keys.setCurrentProgram (i);
+        st.toggleFavorite (0, keys.getCurrentProgram());
+        st.pressPad (2);
         std::unique_ptr<juce::AudioProcessorEditor> ed (st.createEditor());
         for (int p = 0; p < StationProcessor::numPacks; ++p)
         {
@@ -152,6 +157,24 @@ int main (int argc, char** argv)
         juce::FileOutputStream os (dir.getChildFile ("station_setup.png"));
         os.setPosition (0); os.truncate();
         juce::PNGImageFormat().writeImageToStream (img, os);
+        std::function<juce::Viewport* (juce::Component&)> findViewport = [&] (juce::Component& c) -> juce::Viewport*
+        {
+            if (auto* v = dynamic_cast<juce::Viewport*> (&c)) return v;
+            for (auto* child : c.getChildren())
+                if (auto* v = findViewport (*child)) return v;
+            return nullptr;
+        };
+        if (auto* vp = findViewport (*ed))
+        {
+            vp->setViewPosition (0, 330); // the transpose pads section
+            for (int i = 0; i < 3; ++i) juce::MessageManager::getInstance()->runDispatchLoopUntil (60);
+            auto img2 = ed->createComponentSnapshot (ed->getLocalBounds(), true, 1.0f);
+            juce::FileOutputStream os2 (dir.getChildFile ("station_setup_pads.png"));
+            os2.setPosition (0); os2.truncate();
+            juce::PNGImageFormat().writeImageToStream (img2, os2);
+        }
+        st.toggleFavorite (0, keys.getCurrentProgram());
+        st.setTranspose (0);
         std::cout << "UI snapshots -> " << dir.getFullPathName() << "\n";
         ed.reset();
         st.selectPack (0);
@@ -436,6 +459,114 @@ int main (int argc, char** argv)
     StationProcessor st2;
     st2.setStateInformation (state.getData(), (int) state.getSize());
     check (st2.getSelectedPack() == 2 && st2.getPack (2).getCurrentProgram() == 3, "project state restores pack + orchestra preset");
+
+    //==========================================================================
+    // Transpose pads: learned as ch 10 notes 40-47. Press = jump to the pad's transpose, press again = 0,
+    // hold 1 s = store the current transpose on that pad.
+    std::cout << "\nTranspose pads\n";
+    {
+        auto padOn = [] (int pad) { return on (40 + pad, 100, 10); };
+        auto padOff = [] (int pad) { return off (40 + pad, 10); };
+        check (st.getPadSemitones (0) == 0 && st.getPadSemitones (1) == 1 && st.getPadSemitones (4) == 4 && st.getPadSemitones (7) == -3,
+               "default pads: 0 / +1 / +2 / +3 / +4 / -1 / -2 / -3");
+        st.selectPack (0);
+        keys.setCurrentProgram (shortKeys);
+        wait (st, 6.0);
+        st.startPadLearn (0, true);
+        std::vector<Ev> learnEv;
+        for (int i = 0; i < StationProcessor::numPads; ++i)
+        {
+            learnEv.push_back ({ 0.1 * i, padOn (i) });
+            learnEv.push_back ({ 0.1 * i + 0.05, padOff (i) });
+        }
+        render (st, learnEv, 1.0);
+        check (st.getPadLearnTarget() < 0 && st.describePad (0) == "Note E1 (ch 10)" && st.describePad (7) == "Note B1 (ch 10)",
+               "LEARN ALL: 8 pads in order (" + st.describePad (0) + " ... " + st.describePad (7) + ")");
+
+        auto r = render (st, { { 0.0, padOn (4) }, { 0.1, padOff (4) } }, 0.5);
+        check (st.getTranspose() == 4 && st.getActivePad() == 4, "pad 5 press -> transpose +4 (" + juce::String (st.getTranspose()) + ")");
+        check (r.packPeak[0] < 1e-4f, "the pad note itself is silent");
+        render (st, { { 0.0, padOn (4) }, { 0.1, padOff (4) } }, 0.3);
+        check (st.getTranspose() == 0 && st.getActivePad() < 0, "pad 5 again -> back to the song key");
+        render (st, { { 0.0, padOn (6) }, { 0.1, padOff (6) }, { 0.2, padOn (2) }, { 0.3, padOff (2) } }, 0.5);
+        check (st.getTranspose() == 2 && st.getActivePad() == 2, "pad 7 then pad 3 -> +2 (one press, no stacking)");
+
+        // Hold to store: transpose -5 with the buttons, hold pad 4 for 1.5 s.
+        st.setTranspose (-5);
+        render (st, { { 0.0, padOn (3) }, { 1.5, padOff (3) } }, 1.8);
+        check (st.getPadSemitones (3) == -5 && st.getTranspose() == -5 && st.takePadSavedEvent() == 3, "hold pad 4 -> stores -5 (no jump on release)");
+        st.setTranspose (0);
+        render (st, { { 0.0, padOn (3) }, { 0.1, padOff (3) } }, 0.3);
+        check (st.getTranspose() == -5, "pad 4 press -> -5");
+
+        // Pitch: A4 dry, transposed +12 must sound A5.
+        auto goertzel = [] (const juce::AudioBuffer<float>& b, double freq)
+        {
+            auto w = juce::MathConstants<double>::twoPi * freq / rate;
+            double s1 = 0, s2 = 0, c = 2.0 * std::cos (w);
+            for (int i = (int) (0.05 * rate); i < (int) (0.6 * rate); ++i)
+            {
+                auto s0 = b.getSample (0, i) + c * s1 - s2;
+                s2 = s1;
+                s1 = s0;
+            }
+            return std::sqrt (s1 * s1 + s2 * s2 - c * s1 * s2);
+        };
+        for (int i = 0; i < keys.getNumPrograms(); ++i)
+            if (keys.getProgramName (i) == "Studio Grand (dry, open)") keys.setCurrentProgram (i);
+        st.setTranspose (0);
+        wait (st, 1.0);
+        auto plain = render (st, { { 0.0, on (69, 100) }, { 0.7, off (69) } }, 0.8);
+        st.setPadSemitones (1, 12);
+        render (st, { { 0.0, padOn (1) }, { 0.1, padOff (1) } }, 2.0);
+        auto up12 = render (st, { { 0.0, on (69, 100) }, { 0.7, off (69) } }, 0.8);
+        auto ratio = [&] (const Result& x) { return 20.0 * std::log10 ((goertzel (x.audio, 880.0) + 1e-9) / (goertzel (x.audio, 440.0) + 1e-9)); };
+        check (st.getTranspose() == 12 && ratio (up12) > ratio (plain) + 20.0,
+               "A4 at +12 sounds A5 (880/440 Hz: " + juce::String (ratio (plain), 1) + " -> " + juce::String (ratio (up12), 1) + " dB)");
+
+        // Changing the transpose while a key is held: its note-off still finds the note (nothing hangs).
+        keys.setCurrentProgram (shortKeys);
+        st.setTranspose (0);
+        wait (st, 6.0);
+        st.setTranspose (0);
+        auto held = render (st, { { 0.0, on (60, 100) }, { 0.3, padOn (2) }, { 0.35, padOff (2) }, { 0.6, off (60) } }, 6.0);
+        check (st.getTranspose() == 2 && held.packPeak[0] > 0.01f && held.packTailPeak[0] < 0.003f,
+               "transpose while holding: the note still ends (tail " + juce::String (db (held.packTailPeak[0]), 1) + " dB)");
+        st.setPadSemitones (1, 1);
+        st.setTranspose (0);
+    }
+
+    // Favorites: FAVORITES ONLY steps through just the favorites of the pack.
+    std::cout << "\nFavorites\n";
+    {
+        auto& synth = st.getPack (1);
+        for (auto i : { 2, 5, 9 }) st.toggleFavorite (1, i);
+        check (st.isFavorite (1, 5) && ! st.isFavorite (1, 4) && st.getFavoritePrograms (1).size() == 3, "3 Synth favorites");
+        st.setFavoritesOnly (true);
+        synth.setCurrentProgram (0);
+        juce::String path;
+        for (auto step : { 1, 1, 1, 1, -1 })
+        {
+            st.requestPatchStep (1, step);
+            path << synth.getCurrentProgram() << " ";
+        }
+        check (path.trim() == "2 5 9 2 9", "favorites only: steps 2 5 9, wraps (" + path.trim() + ")");
+        synth.setCurrentProgram (6);
+        st.requestPatchStep (1, 1);
+        auto upFrom6 = synth.getCurrentProgram();
+        synth.setCurrentProgram (6);
+        st.requestPatchStep (1, -1);
+        check (upFrom6 == 9 && synth.getCurrentProgram() == 5, "from a non-favorite: next / previous land on the nearest favorite");
+        st.requestPatchStep (0, 1); // Keys has no favorites: steps every patch
+        check (keys.getCurrentProgram() == shortKeys + 1, "a pack with no favorites still steps every patch");
+        st.setFavoritesOnly (false);
+        synth.setCurrentProgram (9);
+        st.requestPatchStep (1, 1);
+        check (synth.getCurrentProgram() == 10, "favorites only off: every patch again");
+        for (auto i : { 2, 5, 9 }) st.toggleFavorite (1, i);
+        check (st.getFavoritePrograms (1).isEmpty(), "un-favorite");
+        synth.setCurrentProgram (0);
+    }
 
     //==========================================================================
     // Several keyboards (standalone app, routed by device): KeyLab -> Keys, a second keyboard -> Synth,

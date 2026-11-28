@@ -25,6 +25,17 @@ Open **CONTROLLER SETUP** (top right):
 
 Controller settings are saved once for all projects in `%APPDATA%\WorshipStation\controller.xml`.
 
+## Patch bar: favorites and transpose
+
+The strip under the header shows the current pack's patch.
+- **Star**: favorite the current patch. **FAVORITES ONLY**: the list shows only favorites, and the patch wheel,
+  the patch buttons and < > step through just the favorites of that pack (a pack with no favorites still steps every patch).
+  Favorites are saved by name in `%APPDATA%/WorshipStation/favorites.xml`.
+- **Transpose**: - / + one semitone, from -12 to +12 (saved with the project). Notes you're holding keep their pitch until you let go.
+- **Transpose pads** (set up in CONTROLLER SETUP > TRANSPOSE PADS; press LEARN ALL 8 PADS and hit pads 1-8):
+  press a pad = jump to its transpose, press the lit pad again = back to the song key, hold a pad for 1 s = save the
+  current transpose on it. Defaults: 0, +1, +2, +3, +4, -1, -2, -3. The 8 buttons on the right of the bar do the same with the mouse.
+
 ## Routing
 
 - **One keyboard - switch packs** (default): the selected pack plays. Notes you're holding when you switch

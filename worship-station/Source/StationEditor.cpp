@@ -11,7 +11,10 @@ const juce::Colour line { 0xff34343c };
 const juce::Colour text { 0xfff2f2f2 };
 const juce::Colour dim { 0xff9a9aa3 };
 const juce::Colour pack[] = { juce::Colour (0xffd8343c), juce::Colour (0xff2fb8e6), juce::Colour (0xffe0a83a) };
+const juce::Colour gold { 0xffffc93c };
 }
+
+const juce::String starChar = juce::String::charToString ((juce::juce_wchar) 0x2605);
 
 const char* packTitles[] = { "KEYS", "SYNTH", "ORCHESTRA" };
 } // namespace
@@ -85,6 +88,30 @@ SetupPanel::SetupPanel (StationProcessor& p) : proc (p)
     addRow (StationProcessor::selectKeys, "Keys button");
     addRow (StationProcessor::selectSynth, "Synth button");
     addRow (StationProcessor::selectOrch, "Orchestra button");
+
+    for (int i = 0; i < StationProcessor::numPads; ++i)
+    {
+        auto& pad = padRows[(size_t) i];
+        pad.value.setFont (juce::Font (juce::FontOptions (14.0f, juce::Font::bold)));
+        for (int st = -StationProcessor::maxTranspose; st <= StationProcessor::maxTranspose; ++st)
+            pad.semis.addItem (st == 0 ? juce::String ("0 (song key)") : StationProcessor::formatSemitones (st) + (std::abs (st) == 1 ? " semitone" : " semitones"),
+                               st + StationProcessor::maxTranspose + 1);
+        pad.semis.onChange = [this, i] { proc.setPadSemitones (i, padRows[(size_t) i].semis.getSelectedId() - StationProcessor::maxTranspose - 1); };
+        pad.learn.onClick = [this, i]
+        {
+            if (proc.getPadLearnTarget() == i) proc.cancelLearn();
+            else proc.startPadLearn (i, false);
+        };
+        pad.clear.onClick = [this, i] { proc.clearPad (i); };
+        for (juce::Component* c : { (juce::Component*) &pad.value, (juce::Component*) &pad.semis, (juce::Component*) &pad.learn, (juce::Component*) &pad.clear })
+            content.addAndMakeVisible (c);
+    }
+    learnAllPads.onClick = [this]
+    {
+        if (proc.getPadLearnTarget() >= 0) proc.cancelLearn();
+        else proc.startPadLearn (0, true);
+    };
+    content.addAndMakeVisible (learnAllPads);
 
     wheelType.addItem ("Knob / fader (3 zones)", 1);
     wheelType.addItem ("Endless wheel (Arturia, 64 +/-)", 2);
@@ -162,6 +189,19 @@ void SetupPanel::refresh (int blink)
     }
     wheelType.setSelectedId ((int) proc.getWheelMode() + 1, juce::dontSendNotification);
 
+    auto learningPad = proc.getPadLearnTarget();
+    for (int i = 0; i < StationProcessor::numPads; ++i)
+    {
+        auto& pad = padRows[(size_t) i];
+        auto isLearning = learningPad == i;
+        pad.value.setText (isLearning ? "hit pad " + juce::String (i + 1) + " now..." : proc.describePad (i), juce::dontSendNotification);
+        pad.value.setColour (juce::Label::textColourId, isLearning ? juce::Colour (0xffffd24d) : colours::text);
+        pad.learn.setToggleState (isLearning && (blink / 4) % 2 == 0, juce::dontSendNotification);
+        pad.learn.setButtonText (isLearning ? "CANCEL" : "LEARN");
+        pad.semis.setSelectedId (proc.getPadSemitones (i) + StationProcessor::maxTranspose + 1, juce::dontSendNotification);
+    }
+    learnAllPads.setButtonText (learningPad >= 0 ? "STOP LEARNING" : "LEARN ALL 8 PADS");
+
     auto split = proc.getRouting() == StationProcessor::splitInputs;
     switchButton.setToggleState (! split, juce::dontSendNotification);
     splitButton.setToggleState (split, juce::dontSendNotification);
@@ -207,6 +247,19 @@ void SetupPanel::paintContent (juce::Graphics& g)
 
     g.setColour (colours::dim);
     g.setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::bold)));
+    g.drawText ("TRANSPOSE PADS", padsArea.withHeight (20), juce::Justification::centredLeft);
+    g.setFont (juce::Font (juce::FontOptions (13.0f)));
+    g.drawFittedText ("Press a pad = transpose by its amount. Press the lit pad again = back to the song key. "
+                      "Hold a pad for 1 second = save the current transpose on it. LEARN ALL, then hit pads 1 to 8 in order.",
+                      padsArea.withTrimmedTop (20).withHeight (34).withTrimmedRight (210), juce::Justification::centredLeft, 2);
+    g.setFont (juce::Font (juce::FontOptions (14.0f, juce::Font::bold)));
+    g.setColour (colours::text);
+    for (int i = 0; i < StationProcessor::numPads; ++i)
+        g.drawText ("Pad " + juce::String (i + 1), padRows[(size_t) i].value.getBounds().withX (padsArea.getX()).withWidth (120),
+                    juce::Justification::centredLeft);
+
+    g.setColour (colours::dim);
+    g.setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::bold)));
     g.drawText ("ROUTING", routingArea.withHeight (20), juce::Justification::centredLeft);
     for (int i = 0; i < StationProcessor::numPacks; ++i)
     {
@@ -225,8 +278,9 @@ void SetupPanel::resized()
     arturiaButton.setBounds (top.removeFromRight (compactScreen ? 150 : 190).reduced (6, 7));
     viewport.setBounds (plateArea.withTrimmedTop (44).reduced (8, 0).withTrimmedBottom (8));
 
+    constexpr int padsHeight = 20 + 40 + StationProcessor::numPads * 34;
     // Page is at least this big; a smaller screen scrolls instead of squeezing.
-    content.setSize (juce::jmax (viewport.getMaximumVisibleWidth(), 740), juce::jmax (viewport.getMaximumVisibleHeight(), 600 + 3 * 38));
+    content.setSize (juce::jmax (viewport.getMaximumVisibleWidth(), 740), juce::jmax (viewport.getMaximumVisibleHeight(), 600 + 3 * 38 + padsHeight + 16));
     auto inner = content.getLocalBounds().reduced (20, 6);
     inner.removeFromTop (40);
 
@@ -252,6 +306,26 @@ void SetupPanel::resized()
     }
 
     inner.removeFromTop (16);
+    padsArea = inner.removeFromTop (padsHeight);
+    {
+        auto pa = padsArea;
+        auto head = pa.removeFromTop (60);
+        learnAllPads.setBounds (head.withTrimmedTop (20).removeFromRight (200).reduced (0, 3));
+        for (auto& pad : padRows)
+        {
+            auto r = pa.removeFromTop (34).reduced (0, 3);
+            r.removeFromLeft (250);
+            pad.clear.setBounds (r.removeFromRight (80));
+            r.removeFromRight (6);
+            pad.learn.setBounds (r.removeFromRight (100));
+            r.removeFromRight (10);
+            pad.semis.setBounds (r.removeFromRight (260));
+            r.removeFromRight (10);
+            pad.value.setBounds (r);
+        }
+    }
+
+    inner.removeFromTop (16);
     routingArea = inner;
     auto rr = inner;
     rr.removeFromTop (24);
@@ -271,7 +345,160 @@ void SetupPanel::resized()
 }
 
 //==============================================================================
-StationEditor::StationEditor (StationProcessor& p) : AudioProcessorEditor (p), proc (p), setup (p)
+PatchBar::PatchBar (StationProcessor& p) : proc (p)
+{
+    prev.onClick = [this] { proc.requestPatchStep (proc.getSelectedPack(), -1); };
+    next.onClick = [this] { proc.requestPatchStep (proc.getSelectedPack(), 1); };
+    prev.setTooltip ("Previous patch (only favorites when FAVORITES ONLY is on)");
+    next.setTooltip ("Next patch (only favorites when FAVORITES ONLY is on)");
+
+    patches.onChange = [this]
+    {
+        auto program = patches.getSelectedId() - 1;
+        auto& pack = proc.getPack (proc.getSelectedPack());
+        if (program >= 0 && program != pack.getCurrentProgram())
+            pack.setCurrentProgram (program);
+    };
+
+    star.setButtonText (starChar);
+    star.setColour (juce::TextButton::buttonOnColourId, colours::gold.darker (0.35f));
+    star.setTooltip ("Favorite this patch");
+    star.onClick = [this]
+    {
+        auto pack = proc.getSelectedPack();
+        proc.toggleFavorite (pack, proc.getPack (pack).getCurrentProgram());
+    };
+
+    favOnly.setColour (juce::TextButton::buttonOnColourId, colours::gold.darker (0.35f));
+    favOnly.setTooltip ("Show only favorites, and make the patch wheel / buttons step through just them");
+    favOnly.onClick = [this] { proc.setFavoritesOnly (! proc.getFavoritesOnly()); };
+
+    down.onClick = [this] { proc.setTranspose (proc.getTranspose() - 1); };
+    up.onClick = [this] { proc.setTranspose (proc.getTranspose() + 1); };
+    down.setTooltip ("Transpose down a semitone");
+    up.setTooltip ("Transpose up a semitone");
+
+    for (int i = 0; i < StationProcessor::numPads; ++i)
+    {
+        auto& pad = pads[(size_t) i];
+        pad.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xff2f9e5a));
+        pad.setTooltip ("Pad " + juce::String (i + 1) + ": press = transpose, press again = back to 0 (set the amounts in CONTROLLER SETUP)");
+        pad.onClick = [this, i] { proc.pressPad (i); };
+        addAndMakeVisible (pad);
+    }
+    for (juce::Component* c : { (juce::Component*) &prev, (juce::Component*) &patches, (juce::Component*) &next, (juce::Component*) &star,
+                                (juce::Component*) &favOnly, (juce::Component*) &down, (juce::Component*) &up })
+        addAndMakeVisible (c);
+}
+
+void PatchBar::rebuildList (int pack)
+{
+    auto& p = proc.getPack (pack);
+    auto favs = proc.getFavoritePrograms (pack);
+    auto onlyFavs = proc.getFavoritesOnly() && ! favs.isEmpty();
+    patches.clear (juce::dontSendNotification);
+    for (int i = 0; i < p.getNumPrograms(); ++i)
+    {
+        auto isFav = favs.contains (i);
+        if (onlyFavs && ! isFav)
+            continue;
+        patches.addItem ((isFav ? starChar + " " : juce::String()) + p.getProgramName (i), i + 1);
+    }
+}
+
+void PatchBar::refresh()
+{
+    auto pack = proc.getSelectedPack();
+    auto program = proc.getPack (pack).getCurrentProgram();
+    if (pack != shownPack || proc.getFavoritesVersion() != shownVersion)
+    {
+        shownPack = pack;
+        shownVersion = proc.getFavoritesVersion();
+        shownProgram = -1;
+        rebuildList (pack);
+    }
+    if (program != shownProgram)
+    {
+        shownProgram = program;
+        if (patches.indexOfItemId (program + 1) >= 0)
+            patches.setSelectedId (program + 1, juce::dontSendNotification);
+        else
+            patches.setText (proc.getPack (pack).getProgramName (program), juce::dontSendNotification);
+    }
+    star.setToggleState (proc.isFavorite (pack, program), juce::dontSendNotification);
+    favOnly.setToggleState (proc.getFavoritesOnly(), juce::dontSendNotification);
+
+    auto active = proc.getActivePad();
+    for (int i = 0; i < StationProcessor::numPads; ++i)
+    {
+        pads[(size_t) i].setButtonText (StationProcessor::formatSemitones (proc.getPadSemitones (i)));
+        pads[(size_t) i].setToggleState (i == active, juce::dontSendNotification);
+    }
+
+    auto saved = proc.takePadSavedEvent();
+    if (saved >= 0)
+    {
+        status = "PAD " + juce::String (saved + 1) + " SAVED " + StationProcessor::formatSemitones (proc.getPadSemitones (saved));
+        statusTicks = 50; // ~2.5 s at 20 Hz
+    }
+    else if (statusTicks > 0 && --statusTicks == 0)
+        status.clear();
+    repaint (transposeArea);
+}
+
+void PatchBar::paint (juce::Graphics& g)
+{
+    auto r = getLocalBounds().toFloat();
+    g.setColour (juce::Colour (0xff17171b));
+    g.fillRect (r);
+    g.setColour (juce::Colours::black);
+    g.fillRect (r.withTop (r.getBottom() - 1.0f));
+
+    // Transpose readout: an LCD between the - / + buttons. Green while transposed.
+    auto t = proc.getTranspose();
+    auto colour = t == 0 ? juce::Colour (0xff9fd8ff) : juce::Colour (0xff7fe08a);
+    hw::drawLCD (g, transposeArea.toFloat(), colour, true);
+    g.setColour (colour);
+    g.setFont (juce::Font (juce::FontOptions (status.isNotEmpty() ? 11.0f : 14.0f, juce::Font::bold)));
+    g.drawText (status.isNotEmpty() ? status : "KEY " + (t == 0 ? juce::String ("0") : StationProcessor::formatSemitones (t)),
+                transposeArea, juce::Justification::centred);
+}
+
+void PatchBar::resized()
+{
+    compact = getWidth() < 900;
+    auto r = getLocalBounds().reduced (compact ? 6 : 10, compact ? 4 : 6);
+    auto gap = compact ? 4 : 6;
+    auto btn = r.getHeight();
+
+    prev.setBounds (r.removeFromLeft (btn));
+    r.removeFromLeft (gap);
+    auto right = r.removeFromRight (compact ? 0 : StationProcessor::numPads * (btn + 4) + 10);
+    right.removeFromLeft (10);
+    for (auto& pad : pads)
+    {
+        pad.setVisible (! compact);
+        pad.setBounds (right.removeFromLeft (btn + 4).withTrimmedRight (4));
+    }
+
+    // - [KEY +2] +
+    up.setBounds (r.removeFromRight (btn));
+    transposeArea = r.removeFromRight (compact ? 76 : 120).reduced (3, 0);
+    down.setBounds (r.removeFromRight (btn));
+    r.removeFromRight (compact ? 8 : 16);
+
+    favOnly.setButtonText (compact ? starChar + " ONLY" : "FAVORITES ONLY");
+    favOnly.setBounds (r.removeFromRight (compact ? 70 : 150));
+    r.removeFromRight (gap);
+    star.setBounds (r.removeFromRight (btn + 6));
+    r.removeFromRight (gap);
+    next.setBounds (r.removeFromRight (btn));
+    r.removeFromRight (gap);
+    patches.setBounds (r);
+}
+
+//==============================================================================
+StationEditor::StationEditor (StationProcessor& p) : AudioProcessorEditor (p), proc (p), patchBar (p), setup (p)
 {
     setLookAndFeel (&lnf);
     static const char* volIds[] = { "keysVol", "synthVol", "orchVol" };
@@ -295,6 +522,7 @@ StationEditor::StationEditor (StationProcessor& p) : AudioProcessorEditor (p), p
     }
     setupButton.onClick = [this] { setup.setVisible (true); setup.toFront (true); };
     addAndMakeVisible (setupButton);
+    addAndMakeVisible (patchBar);
 
     setup.onClose = [this] { setup.setVisible (false); };
     addChildComponent (setup);
@@ -366,6 +594,7 @@ void StationEditor::timerCallback()
     }
     repaint (header);
 
+    patchBar.refresh();
     if (setup.isVisible())
         setup.refresh (blink);
     proc.saveSettingsIfChanged();
@@ -454,6 +683,7 @@ void StationEditor::resized()
     body = safe.withTrimmedTop (headH).getIntersection (getLocalBounds().reduced (cheekW, 0));
     if (compact)
         body = body.withTrimmedBottom (0);
+    patchBar.setBounds (body.removeFromTop (compact ? 38 : 46));
 
     auto h = headerControls.reduced (compact ? 10 : 18, 0);
     if (! compact)

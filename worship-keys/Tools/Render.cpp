@@ -84,6 +84,17 @@ int main (int argc, char** argv)
     auto outDir = juce::File::getCurrentWorkingDirectory().getChildFile (argc > 1 && argv[1][0] != '-' ? argv[1] : "renders");
     outDir.createDirectory();
 
+    // Delay read right at the wrap point: w - delay a hair below 0 used to round to index == size (read past the end).
+    {
+        fx::DelayLine d;
+        d.init (2400);
+        d.push (0.5f);
+        auto v = d.read (std::nextafter (1.0f, 2.0f));
+        std::cout << "DelayLine wrap read " << (v == 0.5f ? "OK" : "FAILED") << std::endl;
+        if (v != 0.5f)
+            return 4;
+    }
+
     constexpr int block = 256;
 
     WorshipKeysProcessor proc;

@@ -12,6 +12,8 @@ class StationProcessor : public juce::AudioProcessor,
 {
 public:
     static constexpr int numPacks = 3;
+    static constexpr int numPads = 8;        // transpose pads
+    static constexpr int maxTranspose = 12;
     static const juce::StringArray packNames;
 
     // Learnable controls.
@@ -56,8 +58,8 @@ public:
     bool isPackAwake (int index) const { return awake[(size_t) index].load(); }
 
     // MIDI controls (message thread)
-    void startLearn (Control c) { learnTarget = c; }
-    void cancelLearn() { learnTarget = -1; }
+    void startLearn (Control c) { learnPad = -1; learnAllPads = false; learnTarget = c; }
+    void cancelLearn() { learnTarget = -1; learnPad = -1; learnAllPads = false; }
     int getLearnTarget() const { return learnTarget.load(); }
     juce::String describeBinding (Control) const;
     void clearBinding (Control);
@@ -77,8 +79,33 @@ public:
 
     bool saveSettingsIfChanged(); // message thread: persists learned controls
     void applyPendingPatchChange(); // message thread: patch wheel / buttons -> the selected pack's preset
+    void requestPatchStep (int pack, int delta) { pendingPatchSteps[(size_t) pack] += delta; applyPendingPatchChange(); }
     void useArturiaDefaults();      // KeyLab Essential mk3: wheel = patches, arrow buttons = packs
     static inline bool persistSettings = true; // the test tool turns this off so it never touches your setup
+    // Transpose (semitones, saved with the project). Pads: press = jump to that pad's transpose, press the lit pad
+    // again = back to 0, hold a pad 1 s = store the current transpose on it.
+    int getTranspose() const { return (int) std::lround (transposeParam->load()); }
+    void setTranspose (int semitones);
+    void startPadLearn (int pad, bool thenLearnTheRest);
+    int getPadLearnTarget() const { return learnPad.load(); }
+    juce::String describePad (int pad) const;
+    void clearPad (int pad);
+    int getPadSemitones (int pad) const { return padSemis[(size_t) pad].load(); }
+    void setPadSemitones (int pad, int semitones);
+    void pressPad (int pad);                       // what a pad press does (also the on-screen pads)
+    int getActivePad() const;                      // lit pad, -1 none
+    int takePadSavedEvent() { return padSavedEvent.exchange (-1); }
+    static juce::String formatSemitones (int);
+
+    // Favorites (message thread): saved globally by patch name. "Favorites only" makes the patch wheel / buttons
+    // step through just the favorites of a pack (all patches while a pack has none).
+    bool isFavorite (int pack, int program);
+    void toggleFavorite (int pack, int program);
+    juce::Array<int> getFavoritePrograms (int pack);
+    bool getFavoritesOnly() const { return favoritesOnly.load(); }
+    void setFavoritesOnly (bool);
+    int getFavoritesVersion() const { return favoritesVersion; }
+
     // Test tool: MIDI as if it arrived from the named device in the standalone app (per-device inputs).
     void injectDeviceMidi (const juce::String& device, const juce::MidiMessage&);
 
@@ -100,6 +127,11 @@ private:
     void send (int pack, const juce::MidiMessage&, int pos);
     void stepPack (int delta);
     void handleWheel (int control, int value, int targetPack);
+    bool handlePads (const juce::MidiMessage&);
+    void learnPadMessage (const juce::MidiMessage&);
+    void checkPadHolds();
+    void loadFavorites();
+    void saveFavorites();
     void noteLastMidi (const juce::MidiMessage&, int slot);
 
     void loadSettings();
@@ -118,6 +150,8 @@ private:
     std::atomic<float>* selectedParam = nullptr;
     std::atomic<float>* volParam[numPacks] {};
     std::atomic<float>* masterParam = nullptr;
+    std::atomic<float>* transposeParam = nullptr;
+    std::array<std::array<int8_t, 128>, 16> playedNote {};   // the (transposed) note each held key is sounding, -1 none
     double sr = 44100.0, clock = 0, lastStepClock = -1.0e9;
     int maxBlock = 512, lastWheelZone = -1, lastPatchZone = -1, clockPos = 0, timerTicks = 0;
     juce::MidiBuffer chunkMidi;
@@ -129,7 +163,15 @@ private:
     std::atomic<int> lastMidiCode { -1 }, lastMidiValue { 0 }, lastMidiSlot { -1 };
     std::atomic<bool> settingsChanged { false };
     std::array<std::atomic<int>, numPacks> pendingPatchSteps {}, pendingPatchZone {};
-    std::atomic<bool> arturiaDefaults { true };   // built-in KeyLab controls: only answer Arturia keyboards
+    std::atomic<bool> arturiaDefaults { true };
+    std::array<std::atomic<int>, numPads> padBinding {}, padSemis {};
+    std::array<bool, numPads> padDown {}, padStored {};
+    std::array<double, numPads> padDownClock {};
+    std::atomic<int> learnPad { -1 }, lastPad { -1 }, padSavedEvent { -1 };
+    std::atomic<bool> learnAllPads { false };
+    std::array<juce::StringArray, numPacks> favorites;
+    std::atomic<bool> favoritesOnly { false };
+    int favoritesVersion = 0;   // built-in KeyLab controls: only answer Arturia keyboards
     std::array<std::atomic<int>, numPacks> packChannel {};
     std::array<juce::String, numPacks> packDevice;
     std::array<std::atomic<int>, numPacks> packSlot {};      // device slot index, -1 = any

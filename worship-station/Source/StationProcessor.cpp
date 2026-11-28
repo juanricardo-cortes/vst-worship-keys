@@ -40,6 +40,23 @@ juce::File settingsFile()
     return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
         .getChildFile ("WorshipStation").getChildFile ("controller.xml");
 }
+
+juce::File favoritesFile() { return settingsFile().getSiblingFile ("favorites.xml"); }
+
+juce::String describeCode (int code)
+{
+    auto ch = " (ch " + juce::String (codeChannel (code)) + ")";
+    switch (codeType (code))
+    {
+        case typeCC:      return "CC " + juce::String (codeNumber (code)) + ch;
+        case typeNote:    return "Note " + juce::MidiMessage::getMidiNoteName (codeNumber (code), true, true, 3) + ch;
+        case typeProgram: return "Program " + juce::String (codeNumber (code) + 1) + ch;
+        default:          return "not set";
+    }
+}
+
+// Pads 1-8 out of the box: back to the song's key, up 1-4, down 1-3. Hold a pad to store your own.
+constexpr int defaultPadSemis[] = { 0, 1, 2, 3, 4, -1, -2, -3 };
 } // namespace
 
 const juce::StringArray StationProcessor::packNames { "Keys", "Synth", "Orchestra" };
@@ -56,6 +73,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout StationProcessor::createLayo
                                                               juce::AudioParameterFloatAttributes().withLabel ("dB")));
     p.push_back (std::make_unique<juce::AudioParameterFloat> (juce::ParameterID { "master", 1 }, "Master", Range (-24, 6, 0.1f), 0.0f,
                                                               juce::AudioParameterFloatAttributes().withLabel ("dB")));
+    p.push_back (std::make_unique<juce::AudioParameterInt> (juce::ParameterID { "transpose", 1 }, "Transpose", -maxTranspose, maxTranspose, 0,
+                                                            juce::AudioParameterIntAttributes().withLabel ("st")));
     return { p.begin(), p.end() };
 }
 
@@ -71,6 +90,10 @@ StationProcessor::StationProcessor()
     for (int i = 0; i < numPacks; ++i)
         volParam[i] = apvts.getRawParameterValue (volIds[i]);
     masterParam = apvts.getRawParameterValue ("master");
+    transposeParam = apvts.getRawParameterValue ("transpose");
+    for (auto& ch : playedNote) ch.fill (-1);
+    for (int i = 0; i < numPads; ++i)
+        padSemis[(size_t) i] = defaultPadSemis[i];
 
     useArturiaDefaults(); // replaced by your own controls once you learn or clear any
     for (int i = 0; i < numPacks; ++i)
@@ -81,6 +104,7 @@ StationProcessor::StationProcessor()
         pendingPatchZone[(size_t) i] = -1;
     }
     loadSettings();
+    loadFavorites();
     startTimer (30); // patch changes; device scan every ~1 s
 }
 
@@ -121,6 +145,8 @@ void StationProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
         c.reset (sr);
     for (auto& ch : noteOwner) ch.fill (0);
     for (auto& ch : controlNoteDown) ch.fill (false);
+    for (auto& ch : playedNote) ch.fill (-1);
+    padDown.fill (false);
 }
 
 void StationProcessor::releaseResources()
@@ -147,13 +173,16 @@ void StationProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
             for (int ch = 1; ch <= 16; ++ch)
                 send (p, juce::MidiMessage::allNotesOff (ch), 0);
         for (auto& ch : noteOwner) ch.fill (0);
+        for (auto& ch : playedNote) ch.fill (-1);
     }
 
     // 1. Controls + routing for the whole block (packs then render in chunks).
     auto handle = [this] (const juce::MidiMessage& m, int pos, int slot)
     {
         noteLastMidi (m, slot);
+        if (learnPad.load() >= 0) { learnPadMessage (m); return; }
         if (learnTarget.load() >= 0) { learn (m); return; }
+        if (handlePads (m)) return;
         if (handleControls (m, slot)) return;
         route (m, pos, slot);
     };
@@ -181,6 +210,7 @@ void StationProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
         }
     }
     midi.clear();
+    checkPadHolds();
 
     // 2. Render each awake pack and mix.
     for (int i = 0; i < numPacks; ++i)
@@ -301,6 +331,8 @@ void StationProcessor::learn (const juce::MidiMessage& m)
         return;
 
     for (auto& b : binding) // one control per MIDI message
+        if (b.load() == code) b = 0;
+    for (auto& b : padBinding)
         if (b.load() == code) b = 0;
     binding[(size_t) target] = code;
     arturiaDefaults = false;
@@ -429,8 +461,31 @@ void StationProcessor::applyPendingPatchChange()
         auto n = pack.getNumPrograms();
         if (n <= 1)
             continue;
-        auto index = zone >= 0 ? juce::jlimit (0, n - 1, zone * n / numPatchZones) : pack.getCurrentProgram();
-        index = ((index + steps) % n + n) % n;
+        int index;
+        auto favs = favoritesOnly.load() ? getFavoritePrograms (p) : juce::Array<int>();
+        if (! favs.isEmpty())
+        {
+            auto count = favs.size();
+            if (zone >= 0)
+                index = favs[juce::jlimit (0, count - 1, zone * count / numPatchZones)];
+            else
+            {
+                auto cur = pack.getCurrentProgram();
+                auto at = favs.indexOf (cur);
+                if (at < 0) // on a patch that isn't a favorite: the first step lands on the nearest favorite that way
+                {
+                    int k = 0;
+                    while (k < count && favs[k] < cur) ++k;
+                    at = steps > 0 ? k - 1 : k;
+                }
+                index = favs[((at + steps) % count + count) % count];
+            }
+        }
+        else
+        {
+            index = zone >= 0 ? juce::jlimit (0, n - 1, zone * n / numPatchZones) : pack.getCurrentProgram();
+            index = ((index + steps) % n + n) % n;
+        }
         if (index != pack.getCurrentProgram())
             pack.setCurrentProgram (index);
     }
@@ -450,11 +505,36 @@ void StationProcessor::useArturiaDefaults()
     settingsChanged = true;
 }
 
-void StationProcessor::route (const juce::MidiMessage& m, int pos, int slot)
+void StationProcessor::route (const juce::MidiMessage& original, int pos, int slot)
 {
-    auto ch = m.getChannel();
+    auto ch = original.getChannel();
     if (ch < 1)
         return; // sysex / clock etc.: the packs don't use them
+
+    // Transpose: a key sounds the note it got when it went down, so changing the transpose while holding
+    // (or under the pedal) never leaves a note hanging. -1 = not seen (plays as is), -2 = out of range (dropped).
+    auto m = original;
+    if (m.isNoteOn() || m.isNoteOff() || m.isAftertouch())
+    {
+        auto& played = playedNote[(size_t) ch - 1][(size_t) m.getNoteNumber()];
+        int out = m.getNoteNumber();
+        if (m.isNoteOn())
+        {
+            out += getTranspose();
+            played = (int8_t) (juce::isPositiveAndBelow (out, 128) ? out : -2);
+        }
+        else if (played != -1)
+        {
+            out = played;
+            if (m.isNoteOff()) played = -1;
+        }
+        if (out < 0)
+        {
+            if (m.isNoteOff()) noteOwner[(size_t) ch - 1][(size_t) original.getNoteNumber()] = 0;
+            return;
+        }
+        m.setNoteNumber (out);
+    }
 
     if (routing.load() == splitInputs)
     {
@@ -468,17 +548,18 @@ void StationProcessor::route (const juce::MidiMessage& m, int pos, int slot)
 
     auto selected = getSelectedPack();
     auto& owner = noteOwner[(size_t) ch - 1];
+    auto key = (size_t) original.getNoteNumber();
     if (m.isNoteOn())
     {
-        owner[(size_t) m.getNoteNumber()] |= (uint8_t) (1 << selected);
+        owner[key] |= (uint8_t) (1 << selected);
         send (selected, m, pos);
     }
     else if (m.isNoteOff())
     {
         // Notes end on the pack they started on, even if you switched while holding them.
-        auto mask = owner[(size_t) m.getNoteNumber()];
+        auto mask = owner[key];
         if (mask == 0) mask = (uint8_t) (1 << selected);
-        owner[(size_t) m.getNoteNumber()] = 0;
+        owner[key] = 0;
         for (int p = 0; p < numPacks; ++p)
             if (mask & (1 << p)) send (p, m, pos);
     }
@@ -510,18 +591,7 @@ void StationProcessor::selectPack (int index)
 }
 
 //==============================================================================
-juce::String StationProcessor::describeBinding (Control c) const
-{
-    auto code = binding[(size_t) c].load();
-    auto ch = " (ch " + juce::String (codeChannel (code)) + ")";
-    switch (codeType (code))
-    {
-        case typeCC:      return "CC " + juce::String (codeNumber (code)) + ch;
-        case typeNote:    return "Note " + juce::MidiMessage::getMidiNoteName (codeNumber (code), true, true, 3) + ch;
-        case typeProgram: return "Program " + juce::String (codeNumber (code) + 1) + ch;
-        default:          return "not set";
-    }
-}
+juce::String StationProcessor::describeBinding (Control c) const { return describeCode (binding[(size_t) c].load()); }
 
 void StationProcessor::clearBinding (Control c)
 {
@@ -623,6 +693,7 @@ void StationProcessor::timerCallback()
     applyPendingPatchChange();
     if (timerTicks++ % 33 != 0)
         return;
+    saveSettingsIfChanged(); // e.g. a pad stored by holding it, with no editor open
 
    #if JucePlugin_Build_Standalone
     if (auto* holder = juce::StandalonePluginHolder::getInstance())
@@ -685,6 +756,16 @@ void StationProcessor::saveSettings()
             e->setAttribute ("channel", codeChannel (code));
             e->setAttribute ("number", codeNumber (code));
         }
+    for (int i = 0; i < numPads; ++i)
+    {
+        auto* e = xml.createNewChildElement ("Pad");
+        auto code = padBinding[(size_t) i].load();
+        e->setAttribute ("index", i);
+        e->setAttribute ("semitones", padSemis[(size_t) i].load());
+        e->setAttribute ("type", codeType (code));
+        e->setAttribute ("channel", codeChannel (code));
+        e->setAttribute ("number", codeNumber (code));
+    }
     for (int p = 0; p < numPacks; ++p)
     {
         auto* e = xml.createNewChildElement ("Pack");
@@ -718,6 +799,17 @@ void StationProcessor::loadSettings()
                                                     juce::jlimit (1, 16, e->getIntAttribute ("channel", 1)),
                                                     juce::jlimit (0, 127, e->getIntAttribute ("number")));
     }
+    for (auto* e : xml->getChildWithTagNameIterator ("Pad"))
+    {
+        auto i = e->getIntAttribute ("index", -1);
+        if (! juce::isPositiveAndBelow (i, numPads))
+            continue;
+        padSemis[(size_t) i] = juce::jlimit (-maxTranspose, maxTranspose, e->getIntAttribute ("semitones"));
+        auto type = e->getIntAttribute ("type");
+        padBinding[(size_t) i] = type == typeCC || type == typeNote
+            ? makeCode (type, juce::jlimit (1, 16, e->getIntAttribute ("channel", 1)), juce::jlimit (0, 127, e->getIntAttribute ("number")))
+            : 0;
+    }
     int p = 0;
     for (auto* e : xml->getChildWithTagNameIterator ("Pack"))
         if (p < numPacks)
@@ -726,6 +818,212 @@ void StationProcessor::loadSettings()
             packDevice[(size_t) p] = e->getStringAttribute ("device");
             ++p;
         }
+}
+
+//==============================================================================
+// Transpose pads
+juce::String StationProcessor::formatSemitones (int s) { return s > 0 ? "+" + juce::String (s) : juce::String (s); }
+
+void StationProcessor::setTranspose (int semitones)
+{
+    if (auto* p = apvts.getParameter ("transpose"))
+        p->setValueNotifyingHost (p->convertTo0to1 ((float) juce::jlimit (-maxTranspose, maxTranspose, semitones)));
+}
+
+void StationProcessor::pressPad (int pad)
+{
+    auto semis = padSemis[(size_t) pad].load();
+    if (lastPad.load() == pad && getTranspose() == semis && semis != 0)
+    {
+        setTranspose (0); // the lit pad again: back to the song's key
+        lastPad = -1;
+        return;
+    }
+    setTranspose (semis);
+    lastPad = pad;
+}
+
+int StationProcessor::getActivePad() const
+{
+    auto pad = lastPad.load();
+    return pad >= 0 && padSemis[(size_t) pad].load() == getTranspose() ? pad : -1;
+}
+
+void StationProcessor::startPadLearn (int pad, bool thenLearnTheRest)
+{
+    learnTarget = -1;
+    learnAllPads = thenLearnTheRest;
+    learnPad = juce::jlimit (0, numPads - 1, pad);
+}
+
+juce::String StationProcessor::describePad (int pad) const { return describeCode (padBinding[(size_t) pad].load()); }
+
+void StationProcessor::clearPad (int pad)
+{
+    padBinding[(size_t) pad] = 0;
+    saveSettings();
+}
+
+void StationProcessor::setPadSemitones (int pad, int semitones)
+{
+    padSemis[(size_t) pad] = juce::jlimit (-maxTranspose, maxTranspose, semitones);
+    saveSettings();
+}
+
+bool StationProcessor::handlePads (const juce::MidiMessage& m)
+{
+    auto ch = m.getChannel();
+    if (ch < 1) return false;
+    int code = 0;
+    bool down = false;
+    if (m.isController())                    { code = makeCode (typeCC, ch, m.getControllerNumber()); down = m.getControllerValue() > 0; }
+    else if (m.isNoteOn() || m.isNoteOff())  { code = makeCode (typeNote, ch, m.getNoteNumber()); down = m.isNoteOn(); }
+    else if (m.isAftertouch())               code = makeCode (typeNote, ch, m.getNoteNumber());
+    else return false;
+
+    for (int i = 0; i < numPads; ++i)
+    {
+        if (padBinding[(size_t) i].load() != code)
+            continue;
+        if (m.isAftertouch())
+            return true; // pad pressure is swallowed with the pad
+        if (codeType (code) == typeNote)
+            controlNoteDown[(size_t) ch - 1][(size_t) m.getNoteNumber()] = down;
+        if (down && ! padDown[(size_t) i])
+        {
+            padDown[(size_t) i] = true;
+            padStored[(size_t) i] = false;
+            padDownClock[(size_t) i] = clock + clockPos;
+        }
+        else if (! down && padDown[(size_t) i])
+        {
+            // Acts on release, so that a long hold can store instead.
+            padDown[(size_t) i] = false;
+            if (! padStored[(size_t) i])
+                pressPad (i);
+        }
+        return true;
+    }
+    return false;
+}
+
+void StationProcessor::checkPadHolds()
+{
+    for (int i = 0; i < numPads; ++i)
+        if (padDown[(size_t) i] && ! padStored[(size_t) i] && clock - padDownClock[(size_t) i] > 1.0 * sr)
+        {
+            padStored[(size_t) i] = true;
+            padSemis[(size_t) i] = getTranspose();
+            lastPad = i;
+            padSavedEvent = i;
+            settingsChanged = true;
+        }
+}
+
+void StationProcessor::learnPadMessage (const juce::MidiMessage& m)
+{
+    if (m.isNoteOff() || (m.isController() && m.getControllerValue() == 0))
+    {
+        handlePads (m); // release of the pad just learned
+        return;
+    }
+    auto pad = learnPad.load();
+    int code = 0;
+    if (m.isNoteOn())
+    {
+        code = makeCode (typeNote, m.getChannel(), m.getNoteNumber());
+        controlNoteDown[(size_t) m.getChannel() - 1][(size_t) m.getNoteNumber()] = true;
+    }
+    else if (m.isController() && isLearnableCC (m.getControllerNumber()))
+        code = makeCode (typeCC, m.getChannel(), m.getControllerNumber());
+    if (code == 0 || pad < 0)
+        return;
+
+    for (auto& b : binding)
+        if (b.load() == code) b = 0;
+    for (auto& b : padBinding)
+        if (b.load() == code) b = 0;
+    padBinding[(size_t) pad] = code;
+    padDown[(size_t) pad] = true;     // its release must not count as a press
+    padStored[(size_t) pad] = true;
+    auto next = learnAllPads.load() && pad + 1 < numPads ? pad + 1 : -1;
+    if (next < 0) learnAllPads = false;
+    learnPad = next;
+    settingsChanged = true;
+}
+
+//==============================================================================
+// Favorites
+bool StationProcessor::isFavorite (int pack, int program)
+{
+    return favorites[(size_t) pack].contains (getPack (pack).getProgramName (program));
+}
+
+void StationProcessor::toggleFavorite (int pack, int program)
+{
+    auto name = getPack (pack).getProgramName (program);
+    if (name.isEmpty())
+        return;
+    auto& list = favorites[(size_t) pack];
+    if (list.contains (name)) list.removeString (name);
+    else list.add (name);
+    ++favoritesVersion;
+    saveFavorites();
+}
+
+juce::Array<int> StationProcessor::getFavoritePrograms (int pack)
+{
+    juce::Array<int> result;
+    auto& p = getPack (pack);
+    if (! favorites[(size_t) pack].isEmpty())
+        for (int i = 0; i < p.getNumPrograms(); ++i)
+            if (favorites[(size_t) pack].contains (p.getProgramName (i)))
+                result.add (i);
+    return result;
+}
+
+void StationProcessor::setFavoritesOnly (bool only)
+{
+    favoritesOnly = only;
+    ++favoritesVersion;
+    saveFavorites();
+}
+
+void StationProcessor::saveFavorites()
+{
+    if (! persistSettings)
+        return;
+    juce::XmlElement xml ("Favorites");
+    xml.setAttribute ("favoritesOnly", favoritesOnly.load() ? 1 : 0);
+    for (int p = 0; p < numPacks; ++p)
+    {
+        auto* e = xml.createNewChildElement ("Pack");
+        e->setAttribute ("name", packNames[p]);
+        for (auto& name : favorites[(size_t) p])
+            e->createNewChildElement ("Patch")->setAttribute ("name", name);
+    }
+    auto file = favoritesFile();
+    file.getParentDirectory().createDirectory();
+    xml.writeTo (file);
+}
+
+void StationProcessor::loadFavorites()
+{
+    if (! persistSettings)
+        return;
+    auto xml = juce::XmlDocument::parse (favoritesFile());
+    if (xml == nullptr)
+        return;
+    favoritesOnly = xml->getIntAttribute ("favoritesOnly", 0) != 0;
+    for (auto* e : xml->getChildWithTagNameIterator ("Pack"))
+    {
+        auto p = packNames.indexOf (e->getStringAttribute ("name"));
+        if (p < 0)
+            continue;
+        favorites[(size_t) p].clear();
+        for (auto* patch : e->getChildWithTagNameIterator ("Patch"))
+            favorites[(size_t) p].addIfNotAlreadyThere (patch->getStringAttribute ("name"));
+    }
 }
 
 //==============================================================================

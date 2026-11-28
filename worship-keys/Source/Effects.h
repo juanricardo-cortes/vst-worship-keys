@@ -22,6 +22,7 @@ struct DelayLine
         auto rp = (float) w - juce::jlimit (1.0f, (float) (size - 2), delay);
         if (rp < 0.0f) rp += (float) size;
         auto i0 = (int) rp;
+        if (i0 >= size) { i0 -= size; rp -= (float) size; } // a tiny negative rp + size can round up to exactly size
         auto f = rp - (float) i0;
         auto i1 = i0 + 1 >= size ? 0 : i0 + 1;
         return buf[(size_t) i0] + f * (buf[(size_t) i1] - buf[(size_t) i0]);

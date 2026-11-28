@@ -33,18 +33,49 @@ private:
         juce::TextButton learn { "LEARN" }, clear { "CLEAR" };
     };
 
+    struct PadRow
+    {
+        juce::Label value;
+        juce::ComboBox semis;
+        juce::TextButton learn { "LEARN" }, clear { "CLEAR" };
+    };
+
     StationProcessor& proc;
     std::vector<std::unique_ptr<Row>> rows;
+    std::array<PadRow, StationProcessor::numPads> padRows;
+    juce::TextButton learnAllPads { "LEARN ALL 8 PADS" };
     juce::ComboBox wheelType;
     juce::TextButton switchButton { "ONE KEYBOARD - SWITCH PACKS" }, splitButton { "EACH PACK ON ITS OWN MIDI" }, doneButton { "DONE" }, arturiaButton { "ARTURIA DEFAULTS" };
     std::array<juce::ComboBox, StationProcessor::numPacks> channelBoxes, deviceBoxes;
     juce::Label monitor, deviceNote;
     juce::StringArray shownDevices;
-    juce::Rectangle<int> controlsArea, routingArea, plateArea;
+    juce::Rectangle<int> controlsArea, padsArea, routingArea, plateArea;
     hw::Page content;          // everything below the title; scrolls on a phone
     juce::Viewport viewport;
 
     void rebuildDeviceBoxes();
+};
+
+// Strip under the header: the current pack's patch (with favorites) and the transpose pads.
+class PatchBar : public juce::Component
+{
+public:
+    explicit PatchBar (StationProcessor&);
+    void refresh();
+    void paint (juce::Graphics&) override;
+    void resized() override;
+
+private:
+    void rebuildList (int pack);
+
+    StationProcessor& proc;
+    juce::TextButton prev { "<" }, next { ">" }, star, favOnly { "FAVORITES ONLY" }, down { "-" }, up { "+" };
+    juce::ComboBox patches;
+    std::array<juce::TextButton, StationProcessor::numPads> pads;
+    juce::Rectangle<int> transposeArea;
+    juce::String status;
+    int shownPack = -1, shownProgram = -1, shownVersion = -1, statusTicks = 0;
+    bool compact = false;
 };
 
 class StationEditor : public juce::AudioProcessorEditor, private juce::Timer
@@ -69,6 +100,7 @@ private:
     std::array<float, StationProcessor::numPacks> meters {};
     juce::TextButton setupButton { "CONTROLLER SETUP" };
     juce::Label hint;
+    PatchBar patchBar;
     SetupPanel setup;
     std::unique_ptr<juce::AudioProcessorEditor> packEditor;
     int shownPack = -1, blink = 0;
